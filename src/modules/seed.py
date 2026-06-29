@@ -1,12 +1,15 @@
-"""Seed loader: populate an empty database from a JSON file.
+"""Seed loader: optionally populate an EMPTY database from the user's own data.
 
-Two seed files may exist in the ``database`` folder:
-    * ``seed.local.json``  — the user's REAL data (git-ignored, never committed).
-    * ``seed.sample.json`` — anonymised demo data (committed).
+Auto-seeding is deliberate and only ever uses ``seed.local.json`` — the user's
+real data, which they place next to the executable or in %APPDATA%. That file is
+git-ignored and is NEVER bundled into the build, so a freshly downloaded app
+starts EMPTY (and shows the quick-setup wizard) instead of with demo values.
 
-On first run (empty DB) the loader prefers the local seed; the sample is only a
-fallback for a fresh checkout. Amounts are human-readable German strings and
-dates are TT.MM.JJJJ / MM.JJJJ, so the files stay easy to edit by hand.
+``seed.sample.json`` (committed, anonymised) is ONLY a format reference for the
+repository — it is never bundled and never auto-loaded into a shipped app.
+
+Amounts are human-readable German strings and dates are TT.MM.JJJJ / MM.JJJJ,
+so the file stays easy to edit by hand.
 """
 
 from __future__ import annotations
@@ -30,23 +33,33 @@ from modules.money import parse_eur
 
 _log = get_logger("seed")
 
+# The ONLY filename that may auto-seed. The anonymised seed.sample.json is a
+# repo reference and must never appear here, or shipped builds would self-fill.
+_AUTO_SEED_FILENAMES = ("seed.local.json",)
+
 
 def _candidate_dirs() -> list[Path]:
-    """Folders to search for seed files (user locations first)."""
+    """Folders to search for the user's seed file.
+
+    A frozen build only looks at user-controlled locations (%APPDATA% and next
+    to the executable) — never at bundled resources — so a fresh download cannot
+    auto-fill itself. In a dev run the repository's ``database`` folder is also
+    searched, which is the developer's convenience for local testing.
+    """
     dirs = [data_dir(), data_dir() / "database"]
-    # Next to the executable (lets a user drop in their real seed beside the app).
-    # Only meaningful in a frozen build; in dev sys.executable is the interpreter.
     if is_frozen():
+        # User drops their real seed beside the .exe.
         exe_dir = Path(sys.executable).parent
         dirs += [exe_dir, exe_dir / "database"]
-    # Bundled resources (the committed sample inside the build / dev tree).
-    dirs.append(resource_path("database"))
+    else:
+        # Development: the repo's database/ folder (may hold seed.local.json).
+        dirs.append(resource_path("database"))
     return dirs
 
 
 def find_seed_file() -> Path | None:
-    """Locate a seed file, preferring the real local one over the sample."""
-    for name in ("seed.local.json", "seed.sample.json"):
+    """Locate the user's seed file (seed.local.json) if present, else None."""
+    for name in _AUTO_SEED_FILENAMES:
         for folder in _candidate_dirs():
             candidate = folder / name
             if candidate.exists():

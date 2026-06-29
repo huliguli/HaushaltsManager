@@ -39,9 +39,13 @@ Es ist keine Installation nötig; die App legt ihre Daten unter
 
 ## Eigene Daten vorladen (optional)
 
-Beim ersten Start (leere Datenbank) sucht die App nach einer Datei
-`seed.local.json` neben der `.exe` oder in `%APPDATA%\HaushaltsManager` und liest
-sie ein. Aufbau siehe [`database/seed.sample.json`](database/seed.sample.json).
+Ein frischer Download startet **leer** und führt durch das Quick-Setup. Wer
+eigene Daten vorab einlesen möchte, legt eine Datei **`seed.local.json`** neben
+die `.exe` oder nach `%APPDATA%\HaushaltsManager` – nur diese Datei wird beim
+ersten Start (leere Datenbank) automatisch geladen. Aufbau/Beispiel siehe
+[`database/seed.sample.json`](database/seed.sample.json) (reine Formatvorlage,
+wird **nicht** mitgeliefert und **nicht** automatisch geladen).
+
 **Echte Finanzdaten gehören niemals ins Repository** – nur in die lokale,
 git-ignorierte `seed.local.json`.
 

@@ -20,8 +20,9 @@ a = Analysis(
     datas=[
         ('src/database/schema.sql', 'src/database'),
         ('version.json', '.'),
-        ('database/seed.sample.json', 'database'),
         ('assets/app.ico', 'assets'),
+        # NOTE: seed.sample.json is deliberately NOT bundled — a shipped build
+        # must start with an empty database, never with demo data.
     ],
     hiddenimports=[
         'matplotlib.backends.backend_qtagg',
