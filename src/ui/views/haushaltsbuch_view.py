@@ -236,8 +236,11 @@ class _FixedTab(QWidget):
 
         header = self.table.horizontalHeader()
         header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
-        for col in (1, 2, 3, 4):
+        for col in (1, 2, 3):
             header.setSectionResizeMode(col, QHeaderView.ResizeMode.ResizeToContents)
+        # Status column holds a pill cell-widget -> fixed width so it never clips.
+        header.setSectionResizeMode(4, QHeaderView.ResizeMode.Fixed)
+        self.table.setColumnWidth(4, 140)
         self.total.setText(f"Summe (gefiltert): {format_eur(shown_total)}  ·  "
                            f"Gesamt aktiv: {format_eur(self.ctx.fixed.total_active())}")
 

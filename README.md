@@ -29,21 +29,28 @@ PDF-Import/-Export. Alle Daten bleiben lokal auf dem Gerät.
 
 ## Installation (Endnutzer)
 
-Unter **Releases** die `HaushaltsManager.exe` herunterladen und starten – fertig.
-Es ist keine Installation nötig; die App legt ihre Daten unter
-`%APPDATA%\HaushaltsManager` an.
+Unter **Releases** die `HaushaltsManager-Setup.exe` herunterladen und ausführen.
+Es ist ein **Installer pro Benutzer** (keine Administratorrechte nötig); er legt
+die App unter `%LOCALAPPDATA%\Programs\HaushaltsManager` an, erstellt einen
+Startmenü-Eintrag und einen Deinstaller. Die Daten liegen separat unter
+`%APPDATA%\HaushaltsManager` und werden bei Updates/Deinstallation nicht berührt.
 
-> Die `.exe` ist nicht signiert. Beim ersten Start zeigt Windows SmartScreen ggf.
-> „Der Computer wurde geschützt" – über *Weitere Informationen → Trotzdem
-> ausführen* startet sie.
+> Hintergrund: Die App wird als Ordner-Build (PyInstaller **onedir**) ausgeliefert
+> – die Laufzeit liegt fest neben der `.exe`, es wird nichts mehr nach `%TEMP%`
+> entpackt. Das vermeidet die „Failed to load Python DLL"-Fehler, die der frühere
+> Einzeldatei-Build (onefile) nach einem Update zeigen konnte.
+
+> Der Installer ist self-signed signiert (Vorabversion). Auf fremden Rechnern kann
+> Windows SmartScreen weiterhin warnen – über *Weitere Informationen → Trotzdem
+> ausführen*.
 
 ## Eigene Daten vorladen (optional)
 
 Ein frischer Download startet **leer** und führt durch das Quick-Setup. Wer
-eigene Daten vorab einlesen möchte, legt eine Datei **`seed.local.json`** neben
-die `.exe` oder nach `%APPDATA%\HaushaltsManager` – nur diese Datei wird beim
-ersten Start (leere Datenbank) automatisch geladen. Aufbau/Beispiel siehe
-[`database/seed.sample.json`](database/seed.sample.json) (reine Formatvorlage,
+eigene Daten vorab einlesen möchte, legt eine Datei **`seed.local.json`** in
+`%APPDATA%\HaushaltsManager` (oder neben die installierte `.exe`) – nur diese
+Datei wird beim ersten Start (leere Datenbank) automatisch geladen. Aufbau/Beispiel
+siehe [`database/seed.sample.json`](database/seed.sample.json) (reine Formatvorlage,
 wird **nicht** mitgeliefert und **nicht** automatisch geladen).
 
 **Echte Finanzdaten gehören niemals ins Repository** – nur in die lokale,
@@ -64,24 +71,28 @@ python -m venv .venv
 # Tests
 .\.venv\Scripts\python.exe -m pytest -q
 
-# Einzelne .exe bauen  ->  dist\HaushaltsManager.exe
+# Ordner-Build (onedir) bauen  ->  dist\HaushaltsManager\
 .\.venv\Scripts\python.exe -m PyInstaller --noconfirm --clean HaushaltsManager.spec
 ```
 
-Kürzer geht es mit den Helfer-Skripten `build.ps1` (baut die `.exe`) und
-`run.ps1` (startet aus dem Quellcode).
+Kürzer geht es mit `build.ps1` – es baut den onedir-Build **und** verpackt ihn mit
+**Inno Setup** zum Installer `dist\HaushaltsManager-Setup.exe` (`-Sign` signiert
+ihn zusätzlich). `run.ps1` startet aus dem Quellcode. Für den Installer wird
+Inno Setup 6 benötigt (<https://jrsoftware.org/isdl.php>).
 
 ## Update-Mechanismus
 
 Beim Start prüft die App (sofern aktiviert) über die **GitHub-Releases-API**, ob
 eine neuere Version vorliegt. Falls ja, erscheint ein nicht-blockierender Dialog
-mit den Änderungshinweisen; auf Wunsch lädt die App das Update herunter und
-startet sich mit ausgetauschter Datei neu. Ohne Internet startet die App ganz
-normal weiter. Eine manuelle Prüfung gibt es unter **Einstellungen → Updates**.
+mit den Änderungshinweisen; auf Wunsch lädt die App den **signierten Installer**
+herunter, **verifiziert die Prüfsumme** und führt ihn **still** aus – der
+Installer ersetzt die Programmdateien und startet die App neu. Ohne Internet
+startet die App ganz normal weiter. Manuelle Prüfung unter **Einstellungen → Updates**.
 
 Ein neues Release wird über einen Git-Tag/Release angestoßen; der
-GitHub-Actions-Workflow [`release.yml`](.github/workflows/release.yml) baut die
-`.exe` und hängt sie als Asset an das Release.
+GitHub-Actions-Workflow [`release.yml`](.github/workflows/release.yml) baut den
+onedir-Build, schnürt den Installer, **signiert** ihn und hängt
+`HaushaltsManager-Setup.exe` + `.sha256` ans Release.
 
 ## Projektstruktur
 

@@ -1,7 +1,9 @@
 # Code-Signierung
 
-Die `HaushaltsManager.exe` wird mit **Authenticode** (SHA-256) und einem
-**RFC3161-Zeitstempel** signiert. Die Signier-Pipeline ist **zertifikat-agnostisch**:
+Sowohl das innere Programm (`HaushaltsManager.exe` im onedir-Build) als auch der
+ausgelieferte **Installer** (`HaushaltsManager-Setup.exe`) werden mit
+**Authenticode** (SHA-256) und einem **RFC3161-Zeitstempel** signiert. Die
+Signier-Pipeline ist **zertifikat-agnostisch**:
 ein Wechsel von einem self-signed auf ein echtes OV/EV-Zertifikat ist nur ein
 Austausch der beiden Secrets – kein Code muss geändert werden.
 
@@ -21,11 +23,12 @@ Vertrauen ist ein **OV- oder EV-Code-Signing-Zertifikat** einer anerkannten CA n
 #    -Trust hinterlegt es zusätzlich lokal, damit signierte Dateien auf DIESEM PC gültig sind.
 .\tools\make-cert.ps1 -Trust
 
-# 2) Die gebaute .exe signieren (SHA-256 + RFC3161-Zeitstempel) und prüfen
-.\sign.ps1 -File dist\HaushaltsManager.exe -Pfx cert\HaushaltsManager.pfx -Password <pw>
+# 2) Bauen + Installer signieren in einem Schritt
+.\build.ps1 -Sign        # baut onedir + Installer und signiert dist\HaushaltsManager-Setup.exe
+# (oder gezielt:)  .\sign.ps1 -File dist\HaushaltsManager-Setup.exe -Pfx cert\HaushaltsManager.pfx -Password <pw>
 
 # 3) Signatur prüfen (zeigt Status + Zeitstempel)
-&  "C:\Program Files (x86)\Windows Kits\10\bin\<sdk>\x64\signtool.exe" verify /pa /v dist\HaushaltsManager.exe
+&  "C:\Program Files (x86)\Windows Kits\10\bin\<sdk>\x64\signtool.exe" verify /pa /v dist\HaushaltsManager-Setup.exe
 ```
 
 `cert\` (PFX/CER) ist **git-ignoriert** und darf **niemals** committet werden. Das
@@ -34,10 +37,12 @@ PFX-Passwort gehört nach `secure.md` (nicht ins Repo).
 ## CI: automatisches Signieren im Release
 
 Der Workflow [`.github/workflows/release.yml`](.github/workflows/release.yml) baut
-die `.exe` und signiert sie, **bevor** die Prüfsumme berechnet wird:
+den onedir-Build, signiert das innere Programm, schnürt den Installer, signiert
+diesen und berechnet **danach** die Prüfsumme:
 
 ```
-Build  →  Sign  →  SHA-256 (über die signierte Datei)  →  Upload (exe + .sha256)
+onedir-Build → inneres exe signieren → Installer (Inno Setup) → Installer signieren
+            → SHA-256 (über die signierte Setup.exe) → Upload (Setup.exe + .sha256)
 ```
 
 Benötigte **GitHub-Actions-Secrets** (Repo-Settings → Secrets and variables → Actions):
@@ -52,10 +57,11 @@ Ist `CODESIGN_PFX_BASE64` nicht gesetzt, **überspringt** der Workflow das Signi
 
 ## Prüfsummen-Verifikation im Updater
 
-Der In-App-Updater (`src/modules/updater/`) lädt die `.exe` über HTTPS und
-**verifiziert sie gegen die mitveröffentlichte `.sha256`**. Stimmt die Prüfsumme
+Der In-App-Updater (`src/modules/updater/`) lädt den **Installer** über HTTPS und
+**verifiziert ihn gegen die mitveröffentlichte `.sha256`**. Stimmt die Prüfsumme
 nicht, wird das Update abgebrochen. Deshalb wird die Prüfsumme in der CI **nach**
-dem Signieren gebildet (sie muss zur signierten Datei passen).
+dem Signieren gebildet (sie muss zur signierten Setup.exe passen). Danach führt der
+Updater den Installer **still** aus (`/VERYSILENT`), der die App ersetzt und neu startet.
 
 ## Upgrade auf ein echtes Zertifikat (OV/EV)
 

@@ -1,9 +1,10 @@
 name: Build and Release
 
-# Builds the single-file Windows .exe when a GitHub release is published,
-# signs it (if a code-signing certificate is configured as a secret), and
-# attaches the signed .exe plus its checksum as release assets. The in-app
-# updater downloads the .exe and verifies it against the .sha256.
+# On a published release: build the onedir app, wrap it into an Inno Setup
+# installer, sign the inner exe and the installer (if a code-signing secret is
+# configured), compute the checksum of the SIGNED installer and attach
+# HaushaltsManager-Setup.exe + .sha256 as release assets. The in-app updater
+# downloads the installer, verifies the .sha256 and runs it silently.
 on:
   release:
     types: [published]
@@ -32,44 +33,68 @@ jobs:
       - name: Tests ausführen
         run: python -m pytest -q
 
-      - name: Executable bauen
+      - name: Anwendung bauen (onedir)
         run: python -m PyInstaller --noconfirm --clean HaushaltsManager.spec
 
-      # Sign before the checksum so the published .sha256 matches the SIGNED file.
-      - name: Signieren (falls Zertifikat hinterlegt)
+      - name: Zertifikat vorbereiten (falls hinterlegt)
         shell: pwsh
         env:
           PFX_B64: ${{ secrets.CODESIGN_PFX_BASE64 }}
+        run: |
+          if ($env:PFX_B64) { [IO.File]::WriteAllBytes("cert.pfx", [Convert]::FromBase64String($env:PFX_B64)) }
+          else { Write-Host "Kein Signatur-Zertifikat hinterlegt." }
+
+      - name: Inneres Programm signieren
+        shell: pwsh
+        env:
           PFX_PW: ${{ secrets.CODESIGN_PFX_PASSWORD }}
         run: |
-          if (-not $env:PFX_B64) { Write-Host "Kein Signatur-Zertifikat hinterlegt - ueberspringe."; exit 0 }
-          [IO.File]::WriteAllBytes("cert.pfx", [Convert]::FromBase64String($env:PFX_B64))
+          if (-not (Test-Path cert.pfx)) { Write-Host "ueberspringe"; exit 0 }
           $ok = $true
-          try { ./sign.ps1 -File dist\HaushaltsManager.exe -Pfx cert.pfx -Password $env:PFX_PW }
+          try { ./sign.ps1 -File dist\HaushaltsManager\HaushaltsManager.exe -Pfx cert.pfx -Password $env:PFX_PW }
           catch { $ok = $false; Write-Host "Signieren fehlgeschlagen: $_" }
-          finally { Remove-Item cert.pfx -Force -ErrorAction SilentlyContinue }
           if (-not $ok) { exit 1 }
           exit 0
 
-      - name: SHA-256 erzeugen (nach dem Signieren)
+      - name: Installer bauen (Inno Setup)
         shell: pwsh
         run: |
-          (Get-FileHash dist\HaushaltsManager.exe -Algorithm SHA256).Hash.ToLower() |
-            Set-Content -NoNewline dist\HaushaltsManager.exe.sha256
+          choco install innosetup -y --no-progress | Out-Null
+          $ver = (Get-Content version.json -Raw | ConvertFrom-Json).version
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" "/DMyAppVersion=$ver" installer\HaushaltsManager.iss
+
+      - name: Installer signieren (falls Zertifikat hinterlegt)
+        shell: pwsh
+        env:
+          PFX_PW: ${{ secrets.CODESIGN_PFX_PASSWORD }}
+        run: |
+          if (-not (Test-Path cert.pfx)) { Write-Host "ueberspringe"; exit 0 }
+          $ok = $true
+          try { ./sign.ps1 -File dist\HaushaltsManager-Setup.exe -Pfx cert.pfx -Password $env:PFX_PW }
+          catch { $ok = $false; Write-Host "Signieren fehlgeschlagen: $_" }
+          if (-not $ok) { exit 1 }
+          exit 0
+
+      - name: Aufräumen + SHA-256 (über die signierte Datei)
+        shell: pwsh
+        run: |
+          Remove-Item cert.pfx -Force -ErrorAction SilentlyContinue
+          (Get-FileHash dist\HaushaltsManager-Setup.exe -Algorithm SHA256).Hash.ToLower() |
+            Set-Content -NoNewline dist\HaushaltsManager-Setup.exe.sha256
 
       - name: Release-Assets hochladen
         if: github.event_name == 'release'
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            dist/HaushaltsManager.exe
-            dist/HaushaltsManager.exe.sha256
+            dist/HaushaltsManager-Setup.exe
+            dist/HaushaltsManager-Setup.exe.sha256
 
       - name: Build-Artefakt hochladen (manuelle Läufe)
         if: github.event_name == 'workflow_dispatch'
         uses: actions/upload-artifact@v4
         with:
-          name: HaushaltsManager-exe
+          name: HaushaltsManager-Setup
           path: |
-            dist/HaushaltsManager.exe
-            dist/HaushaltsManager.exe.sha256
+            dist/HaushaltsManager-Setup.exe
+            dist/HaushaltsManager-Setup.exe.sha256

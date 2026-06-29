@@ -157,31 +157,34 @@ class EinstellungenView(BaseView):
     # -- data ---------------------------------------------------------------
     def _data_card(self) -> QFrame:
         card, layout = self._card("Daten")
-        layout.addWidget(self._data_row(
-            "Quick-Setup-Wizard erneut starten",
-            "Assistent öffnen", lambda: run_wizard(self.ctx, self), primary=True))
-        layout.addWidget(self._data_row(
-            "Speicherort der Daten öffnen",
-            "Ordner öffnen", lambda: self._open(data_dir())))
-        layout.addWidget(self._data_row(
-            "Protokoll (Logdatei) öffnen",
-            "Protokoll öffnen", lambda: self._open(logs_dir())))
-        layout.addWidget(self._data_row(
-            "Alle Finanzdaten unwiderruflich löschen",
-            "Alle Daten löschen", self._wipe_data, danger=True))
+        self._add_action_row(layout, "Quick-Setup-Wizard erneut starten",
+                             "Assistent öffnen", lambda: run_wizard(self.ctx, self), "Primary")
+        self._add_action_row(layout, "Speicherort der Daten öffnen",
+                             "Ordner öffnen", lambda: self._open(data_dir()), "Ghost")
+        self._add_action_row(layout, "Protokoll (Logdatei) öffnen",
+                             "Protokoll öffnen", lambda: self._open(logs_dir()), "Ghost")
+        self._add_action_row(layout, "Alle Finanzdaten unwiderruflich löschen",
+                             "Alle Daten löschen", self._wipe_data, "Danger")
         return card
 
-    def _data_row(self, label: str, button_text: str, slot, primary=False, danger=False) -> QWidget:
-        row = QWidget()
-        layout = QHBoxLayout(row)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.addWidget(QLabel(label))
-        layout.addStretch(1)
+    def _add_action_row(self, layout, label: str, button_text: str, slot, kind: str) -> None:
+        """One settings row: description left, fixed-width action button right.
+
+        Built as a QHBoxLayout added via addLayout (not a wrapped QWidget) so the
+        button keeps the card's full right margin and a uniform width — the cause
+        of the previously clipped/inconsistent buttons.
+        """
+        row = QHBoxLayout()
+        row.setContentsMargins(0, 0, 0, 0)
+        row.addWidget(QLabel(label))
+        row.addStretch(1)
         btn = QPushButton(button_text)
-        btn.setObjectName("Primary" if primary else ("Danger" if danger else "Ghost"))
+        btn.setObjectName(kind)
+        btn.setMinimumWidth(168)
+        btn.setCursor(Qt.CursorShape.PointingHandCursor)
         btn.clicked.connect(slot)
-        layout.addWidget(btn)
-        return row
+        row.addWidget(btn)
+        layout.addLayout(row)
 
     def _wipe_data(self) -> None:
         if QMessageBox.warning(

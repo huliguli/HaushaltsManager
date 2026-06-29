@@ -10,7 +10,7 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
-if (-not $File)     { $File     = Join-Path $root 'dist\HaushaltsManager.exe' }
+if (-not $File)     { $File     = Join-Path $root 'dist\HaushaltsManager-Setup.exe' }
 if (-not $Pfx)      { $Pfx      = Join-Path $root 'cert\HaushaltsManager.pfx' }
 if (-not $Password) { $Password = $env:CODESIGN_PFX_PASSWORD }
 

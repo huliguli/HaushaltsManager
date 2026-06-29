@@ -191,38 +191,35 @@ def download_asset(asset_url: str, progress_cb=None, should_interrupt=None) -> s
         raise
 
 
-def apply_update_and_restart(new_exe_path: str) -> bool:
-    """Swap the running executable with the downloaded one and relaunch.
+def apply_update_and_restart(installer_path: str) -> bool:
+    """Run the downloaded installer silently to update in place, then relaunch.
 
-    Only effective in a frozen build. Returns True if the relaunch script was
-    started (the caller should then quit the application).
+    The release asset is an Inno Setup installer (HaushaltsManager-Setup.exe).
+    We launch it with /VERYSILENT; the installer closes the running app (via the
+    Windows Restart Manager / CloseApplications), replaces the program files and
+    relaunches the app through its [Run] entry. The caller must quit the app
+    right after this returns True so the files are not locked.
+
+    Only effective in a frozen build. Returns True if the installer was started
+    (never raises — honours the module's never-raises contract).
     """
     if not is_frozen():
-        _log.info("apply_update im Dev-Modus übersprungen (nur als .exe wirksam).")
+        _log.info("apply_update im Dev-Modus übersprungen (nur als Installer wirksam).")
         return False
 
     try:
-        target = sys.executable
-        pid = os.getpid()
-        bat = (
-            "@echo off\r\n"
-            ":wait\r\n"
-            f'tasklist /FI "PID eq {pid}" 2>nul | find "{pid}" >nul\r\n'
-            "if not errorlevel 1 ( timeout /t 1 /nobreak >nul & goto wait )\r\n"
-            f'move /Y "{new_exe_path}" "{target}" >nul\r\n'
-            f'start "" "{target}"\r\n'
-            'del "%~f0"\r\n'
-        )
-        fd, bat_path = tempfile.mkstemp(suffix=".bat", prefix="hm-update-")
-        with os.fdopen(fd, "w", encoding="ascii") as fh:
-            fh.write(bat)
+        # Detached so it survives this process exiting; argument array (no shell)
+        # so the path cannot be misinterpreted.
+        flags = (getattr(subprocess, "DETACHED_PROCESS", 0)
+                 | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0))
         subprocess.Popen(
-            ["cmd", "/c", bat_path],
-            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+            [installer_path, "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/NOCANCEL"],
+            creationflags=flags, close_fds=True)
+        _log.info("Update-Installer gestartet: %s", installer_path)
         return True
     except Exception as exc:  # noqa: BLE001 - honour the module's never-raises contract
         _log.warning("Update konnte nicht angewendet werden: %s", exc)
-        _safe_remove(new_exe_path)
+        _safe_remove(installer_path)
         return False
 
 

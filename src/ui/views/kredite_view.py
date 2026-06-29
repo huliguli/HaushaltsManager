@@ -115,8 +115,12 @@ class KrediteView(BaseView):
 
         header = self.table.horizontalHeader()
         header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
-        for col in range(1, 7):
+        for col in range(1, 6):
             header.setSectionResizeMode(col, QHeaderView.ResizeMode.ResizeToContents)
+        # The status column hosts a pill cell-widget, which ResizeToContents
+        # cannot measure -> fixed width so the badge is never clipped.
+        header.setSectionResizeMode(6, QHeaderView.ResizeMode.Fixed)
+        self.table.setColumnWidth(6, 120)
         self.summary.setText(
             f"{active_count} aktive Kredite · monatliche Belastung {format_eur(monthly_total)}")
 

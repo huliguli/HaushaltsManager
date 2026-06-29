@@ -1,14 +1,17 @@
 # -*- mode: python ; coding: utf-8 -*-
-"""PyInstaller spec — builds a single-file Windows executable.
+"""PyInstaller spec — builds a ONEDIR Windows app (folder, not single file).
 
-Bundled data:
+Onedir is used deliberately: the Python runtime (incl. python3xx.dll) lives
+permanently next to the executable in _internal/, so there is NO per-launch
+temp extraction to %TEMP%\\_MEI… . That removes the "Failed to load Python DLL"
+class of failures that onefile suffered after a self-replace update, and makes
+startup faster and antivirus-friendly. The folder is wrapped into a signed
+Inno Setup installer (installer/HaushaltsManager.iss) for distribution.
+
+Bundled data (collected into _internal/ at the matching relative path):
     * src/database/schema.sql  -> read at first run to create the database
     * version.json             -> the app's own version (update check baseline)
-    * database/seed.sample.json -> anonymised demo seed (never the real data)
-
-The real seed (seed.local.json) is intentionally NOT bundled; a user who wants
-to preload their own data drops it next to the executable or into
-%APPDATA%/HaushaltsManager.
+    * assets/app.ico           -> window/app icon
 """
 
 block_cipher = None
@@ -41,15 +44,13 @@ pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
 exe = EXE(
     pyz,
     a.scripts,
-    a.binaries,
-    a.datas,
     [],
+    exclude_binaries=True,   # onedir: binaries go into COLLECT, not the exe
     name='HaushaltsManager',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
     upx=False,
-    runtime_tmpdir=None,
     console=False,
     disable_windowed_traceback=False,
     argv_emulation=False,
@@ -58,4 +59,14 @@ exe = EXE(
     entitlements_file=None,
     icon='assets/app.ico',
     version='version_info.txt',
+)
+
+coll = COLLECT(
+    exe,
+    a.binaries,
+    a.datas,
+    strip=False,
+    upx=False,
+    upx_exclude=[],
+    name='HaushaltsManager',
 )
