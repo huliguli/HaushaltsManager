@@ -21,6 +21,7 @@ a = Analysis(
         ('src/database/schema.sql', 'src/database'),
         ('version.json', '.'),
         ('database/seed.sample.json', 'database'),
+        ('assets/app.ico', 'assets'),
     ],
     hiddenimports=[
         'matplotlib.backends.backend_qtagg',
@@ -54,5 +55,6 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon=None,
+    icon='assets/app.ico',
+    version='version_info.txt',
 )

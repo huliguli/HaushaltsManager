@@ -44,6 +44,11 @@ dist/
 *.spec.bak
 *.manifest
 
+# --- Icon preview / intermediate renders (sources app.ico/app.svg are kept) --
+assets/concept_*.png
+assets/concepts_preview.png
+assets/app_icon.png
+
 # --- Local notes (never publish) ----------------------------------------
 *.local.md
 

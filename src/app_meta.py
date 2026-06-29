@@ -18,7 +18,7 @@ APP_DISPLAY_NAME = "HaushaltsManager"
 GITHUB_REPO = "huliguli/HaushaltsManager"
 
 # Fallback version; the real value is read from the bundled version.json below.
-_FALLBACK_VERSION = "1.0.0"
+_FALLBACK_VERSION = "1.0.1"
 
 
 def is_frozen() -> bool:
@@ -91,3 +91,12 @@ def logs_dir() -> Path:
 def schema_path() -> Path:
     """Location of the bundled SQL schema."""
     return resource_path("src", "database", "schema.sql")
+
+
+def app_icon_path() -> Path:
+    """Location of the bundled application icon (.ico).
+
+    Resolved via :func:`resource_path` so it works both in development and
+    inside a PyInstaller one-file bundle (sys._MEIPASS).
+    """
+    return resource_path("assets", "app.ico")

@@ -16,9 +16,10 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from PyQt6.QtCore import QTimer  # noqa: E402
+from PyQt6.QtGui import QIcon  # noqa: E402
 from PyQt6.QtWidgets import QApplication, QMessageBox  # noqa: E402
 
-from app_meta import APP_DISPLAY_NAME  # noqa: E402
+from app_meta import APP_DISPLAY_NAME, APP_NAME, app_icon_path  # noqa: E402
 from modules.config import Config  # noqa: E402
 from modules.db_handler.database import Database  # noqa: E402
 from modules.logging_setup import setup_logging  # noqa: E402
@@ -27,12 +28,33 @@ from ui.app_context import AppContext  # noqa: E402
 from ui.main_window import MainWindow  # noqa: E402
 
 
+def _set_app_user_model_id() -> None:
+    """Give Windows an explicit AppUserModelID.
+
+    Without this, a Python-hosted process inherits the interpreter's identity and
+    the taskbar shows the wrong icon / fails to group windows. Must be set before
+    any window is created.
+    """
+    if sys.platform != "win32":
+        return
+    try:
+        import ctypes
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(
+            f"Mijonex.{APP_NAME}.App.1")
+    except Exception:  # noqa: BLE001 - cosmetic only, never block startup
+        pass
+
+
 def main() -> int:
     log = setup_logging()
     log.info("Starte %s", APP_DISPLAY_NAME)
 
+    _set_app_user_model_id()
     app = QApplication(sys.argv)
     app.setApplicationName(APP_DISPLAY_NAME)
+    icon_file = app_icon_path()
+    if icon_file.exists():
+        app.setWindowIcon(QIcon(str(icon_file)))
 
     # Friendly catch-all: log the traceback, show a plain message, never crash
     # to a raw traceback in the user's face.

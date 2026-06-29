@@ -8,7 +8,7 @@ sidebar re-runs the visible view's ``refresh()`` so data is always current.
 from __future__ import annotations
 
 from PyQt6.QtCore import QSize, Qt
-from PyQt6.QtGui import QCloseEvent
+from PyQt6.QtGui import QCloseEvent, QIcon
 from PyQt6.QtWidgets import (
     QButtonGroup,
     QHBoxLayout,
@@ -19,7 +19,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from app_meta import APP_DISPLAY_NAME, APP_VERSION, GITHUB_REPO
+from app_meta import APP_DISPLAY_NAME, APP_VERSION, GITHUB_REPO, app_icon_path
 from modules.updater import updater
 from ui import icons, theme
 from ui.app_context import AppContext
@@ -49,6 +49,9 @@ class MainWindow(QWidget):
         self.setObjectName("Root")
         self.setWindowTitle(APP_DISPLAY_NAME)
         self.setMinimumSize(1060, 680)
+        _icon = app_icon_path()
+        if _icon.exists():
+            self.setWindowIcon(QIcon(str(_icon)))
 
         self._views: list[BaseView] = []
         self._nav_buttons: list[QPushButton] = []
