@@ -124,8 +124,10 @@ class _IncomeTab(QWidget):
             self.table.setItem(r, 1, _text_item(INCOME_TYPE_LABELS.get(it.income_type, "")))
             self.table.setItem(r, 2, _money_item(it.amount_cents))
             self.table.setItem(r, 3, _text_item("Aktiv" if it.active else "Inaktiv"))
-        self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
-        self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
+        header = self.table.horizontalHeader()
+        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        for col in (1, 2, 3):
+            header.setSectionResizeMode(col, QHeaderView.ResizeMode.ResizeToContents)
         self.total.setText(f"Aktive Einnahmen: {format_eur(self.ctx.income.total_active())}")
 
     def _add(self) -> None:

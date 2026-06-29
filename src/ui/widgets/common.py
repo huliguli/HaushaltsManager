@@ -77,8 +77,8 @@ class StatCard(QFrame):
         self._stripe = QFrame()
         self._stripe.setFixedWidth(5)
         self._stripe.setStyleSheet(
-            f"background: {accent}; border-top-left-radius: 14px; "
-            f"border-bottom-left-radius: 14px;"
+            f"background: {accent}; border-top-left-radius: 16px; "
+            f"border-bottom-left-radius: 16px;"
         )
         root.addWidget(self._stripe)
 

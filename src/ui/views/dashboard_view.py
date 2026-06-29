@@ -142,8 +142,7 @@ class DashboardView(BaseView):
         if by_cat:
             labels = list(by_cat.keys())
             values = [v / 100.0 for v in by_cat.values()]
-            cycle = [c["blue"], c["green"], c["amber"], c["red"], c["grey"],
-                     "#7c5cff", "#15b8c4", "#e6699a"]
+            cycle = theme.chart_colors(c)
             slice_colors = [cycle[i % len(cycle)] for i in range(len(labels))]
             canvas.donut(labels, values, slice_colors,
                          center_text=format_eur_short(ov.variable_cents))
@@ -217,8 +216,7 @@ class DashboardView(BaseView):
         grid.setContentsMargins(0, 6, 0, 0)
         grid.setHorizontalSpacing(16)
         grid.setVerticalSpacing(4)
-        cycle = [c["blue"], c["green"], c["amber"], c["red"], c["grey"],
-                 "#7c5cff", "#15b8c4", "#e6699a"]
+        cycle = theme.chart_colors(c)
         for i, (cat, val) in enumerate(by_cat.items()):
             dot = QLabel("●")
             dot.setStyleSheet(f"color: {cycle[i % len(cycle)]}; font-size: 13px;")
