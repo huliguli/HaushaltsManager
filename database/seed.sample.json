@@ -1,0 +1,29 @@
+{
+  "_comment": "ANONYMISIERTE Beispieldaten. Echte Finanzdaten gehören NUR in seed.local.json (git-ignored).",
+  "income_sources": [
+    { "name": "Minijob", "amount": "450,00", "type": "minijob" },
+    { "name": "Teilzeit", "amount": "1.800,00", "type": "teilzeit" }
+  ],
+  "fixed_costs": [
+    { "name": "Miete", "amount": "520,00", "end": null, "category": "Wohnen" },
+    { "name": "Autoversicherung", "amount": "98,50", "end": null, "category": "Auto" },
+    { "name": "Strom", "amount": "95,00", "end": null, "category": "Wohnen" },
+    { "name": "Ratenkredit", "amount": "65,00", "end": "30.06.2027", "category": "Kredit" },
+    { "name": "Internet", "amount": "39,99", "end": null, "category": "Kommunikation" },
+    { "name": "Sparrate Langzeit", "amount": "50,00", "end": "01.09.2031", "category": "Persönlich" },
+    { "name": "Privatdarlehen", "amount": "30,00", "end": "01.05.2029", "category": "Persönlich" },
+    { "name": "Fitnessstudio", "amount": "29,90", "end": null, "category": "Freizeit" },
+    { "name": "Parkplatz", "amount": "12,00", "end": null, "category": "Auto" },
+    { "name": "Streaming-Paket", "amount": "12,99", "end": null, "category": "Freizeit" },
+    { "name": "Spende", "amount": "5,00", "end": null, "category": "Sonstiges" }
+  ],
+  "credits": [
+    { "name": "Ratenkredit", "total": "1.560,00", "monthly": "65,00", "end": "30.06.2027", "category": "Divers" }
+  ],
+  "variable_estimate": [
+    { "name": "Lebensmittel & Drogerie", "amount": "280,00", "category": "Lebensmittel" },
+    { "name": "Tanken", "amount": "180,00", "category": "Tanken" },
+    { "name": "Freizeit", "amount": "90,00", "category": "Freizeit" },
+    { "name": "Kleidung & Diverses", "amount": "70,00", "category": "Kleidung" }
+  ]
+}

@@ -1,0 +1,56 @@
+# ==========================================================================
+#  HaushaltsManager — .gitignore
+#  PRIVACY-CRITICAL: real personal finance data must NEVER reach the repo.
+# ==========================================================================
+
+# --- Real / local financial data (NEVER commit) -------------------------
+database/seed.local.json
+database/*.local.json
+*.local.json
+database/*.db
+*.db
+*.sqlite
+*.sqlite3
+
+# The anonymized sample seed IS committed on purpose:
+!database/seed.sample.json
+
+# --- Runtime app data / logs --------------------------------------------
+logs/
+*.log
+config.json
+src/config.json
+
+# --- Python -------------------------------------------------------------
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+.coverage
+htmlcov/
+
+# --- Virtual environments -----------------------------------------------
+.venv/
+venv/
+env/
+ENV/
+
+# --- PyInstaller / build output -----------------------------------------
+build/
+dist/
+*.spec.bak
+*.manifest
+
+# --- Local notes (never publish) ----------------------------------------
+*.local.md
+
+# --- Editors / OS -------------------------------------------------------
+.vscode/
+.idea/
+*.swp
+Thumbs.db
+desktop.ini
+.DS_Store

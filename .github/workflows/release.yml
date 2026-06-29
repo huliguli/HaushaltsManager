@@ -1,0 +1,55 @@
+name: Build and Release
+
+# Builds the single-file Windows .exe when a GitHub release is published and
+# attaches it as a release asset (used by the in-app updater).
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Repository auschecken
+        uses: actions/checkout@v4
+
+      - name: Python einrichten
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Abhängigkeiten installieren
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Tests ausführen
+        run: python -m pytest -q
+
+      - name: Executable bauen
+        run: python -m PyInstaller --noconfirm --clean HaushaltsManager.spec
+
+      - name: SHA-256 erzeugen
+        shell: pwsh
+        run: |
+          (Get-FileHash dist\HaushaltsManager.exe -Algorithm SHA256).Hash |
+            Set-Content -NoNewline dist\HaushaltsManager.exe.sha256
+
+      - name: Release-Assets hochladen
+        if: github.event_name == 'release'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/HaushaltsManager.exe
+            dist/HaushaltsManager.exe.sha256
+
+      - name: Build-Artefakt hochladen (manuelle Läufe)
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v4
+        with:
+          name: HaushaltsManager-exe
+          path: dist/HaushaltsManager.exe

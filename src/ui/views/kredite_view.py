@@ -1,0 +1,177 @@
+"""Kredite: manage running loans, with optional sync to a fixed-cost entry.
+
+When a credit is linked to a fixed-cost row, saving the credit keeps that row's
+monthly amount in step with the credit's instalment, so the household budget and
+the loan list never drift apart.
+"""
+
+from __future__ import annotations
+
+from PyQt6.QtCore import Qt
+from PyQt6.QtWidgets import (
+    QAbstractItemView,
+    QHBoxLayout,
+    QHeaderView,
+    QLabel,
+    QMessageBox,
+    QPushButton,
+    QTableWidget,
+    QTableWidgetItem,
+    QVBoxLayout,
+    QWidget,
+)
+
+from modules import dates
+from modules.models import CREDIT_STATUS_LABELS
+from modules.money import format_eur
+from ui import theme
+from ui.dialogs import CreditDialog
+from ui.views.base_view import BaseView
+from ui.widgets.common import Pill, heading, muted
+
+_ROLE_ID = Qt.ItemDataRole.UserRole
+_STATUS_AMPEL = {"aktiv": "blue", "abbezahlt": "green", "pausiert": "grey"}
+
+
+def _ro_item(text: str, align_right: bool = False) -> QTableWidgetItem:
+    item = QTableWidgetItem(text)
+    item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+    if align_right:
+        item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+    return item
+
+
+class KrediteView(BaseView):
+    def __init__(self, ctx) -> None:
+        super().__init__(ctx)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(30, 26, 30, 24)
+        layout.setSpacing(12)
+
+        layout.addWidget(heading("Kredite"))
+        layout.addWidget(muted("Laufende Kredite verwalten – optional mit Fixkosten verknüpft."))
+
+        bar = QHBoxLayout()
+        self.summary = QLabel()
+        self.summary.setObjectName("H2")
+        bar.addWidget(self.summary)
+        bar.addStretch(1)
+        edit = QPushButton("Bearbeiten")
+        edit.setObjectName("Ghost")
+        delete = QPushButton("Löschen")
+        delete.setObjectName("Danger")
+        add = QPushButton("+ Kredit")
+        add.setObjectName("Primary")
+        bar.addWidget(edit)
+        bar.addWidget(delete)
+        bar.addWidget(add)
+        layout.addLayout(bar)
+
+        self.table = QTableWidget(0, 7)
+        self.table.setHorizontalHeaderLabels(
+            ["Bezeichnung", "Kategorie", "Gesamtbetrag", "Rate / Monat",
+             "Restlaufzeit", "Ende", "Status"])
+        self.table.verticalHeader().setVisible(False)
+        self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.table.setAlternatingRowColors(True)
+        self.table.setShowGrid(False)
+        self.table.verticalHeader().setDefaultSectionSize(40)
+        self.table.doubleClicked.connect(lambda: self._edit())
+        layout.addWidget(self.table, 1)
+
+        add.clicked.connect(self._add)
+        edit.clicked.connect(self._edit)
+        delete.clicked.connect(self._delete)
+
+    def refresh(self) -> None:
+        colors = self.ctx.colors
+        credits = self.ctx.credits.list()
+        self.table.setRowCount(len(credits))
+        monthly_total = 0
+        active_count = 0
+        for r, cr in enumerate(credits):
+            if cr.status == "aktiv" and cr.monthly_cents:
+                monthly_total += cr.monthly_cents
+                active_count += 1
+            name = _ro_item(cr.name)
+            name.setData(_ROLE_ID, cr.id)
+            self.table.setItem(r, 0, name)
+            self.table.setItem(r, 1, _ro_item(cr.category))
+            self.table.setItem(r, 2, _ro_item(format_eur(cr.total_cents) if cr.total_cents else "–", True))
+            self.table.setItem(r, 3, _ro_item(format_eur(cr.monthly_cents) if cr.monthly_cents else "–", True))
+            self.table.setItem(r, 4, _ro_item(self._term_text(cr)))
+            self.table.setItem(r, 5, _ro_item(dates.format_date(cr.end_date) or "–"))
+            key = _STATUS_AMPEL.get(cr.status, "grey")
+            pill = Pill(CREDIT_STATUS_LABELS.get(cr.status, cr.status),
+                        theme.ampel_color(key, colors), theme.ampel_soft(key, colors))
+            wrap = QWidget()
+            wl = QHBoxLayout(wrap)
+            wl.setContentsMargins(6, 2, 6, 2)
+            wl.addWidget(pill)
+            wl.addStretch(1)
+            self.table.setCellWidget(r, 6, wrap)
+
+        header = self.table.horizontalHeader()
+        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        for col in range(1, 7):
+            header.setSectionResizeMode(col, QHeaderView.ResizeMode.ResizeToContents)
+        self.summary.setText(
+            f"{active_count} aktive Kredite · monatliche Belastung {format_eur(monthly_total)}")
+
+    @staticmethod
+    def _term_text(cr) -> str:
+        if cr.end_date:
+            rem = dates.months_remaining(cr.end_date)
+            if rem is not None and rem >= 0:
+                return dates.format_months_remaining(rem)
+        if cr.term_months:
+            return f"{cr.term_months} Monate"
+        return "–"
+
+    # -- actions ------------------------------------------------------------
+    def _add(self) -> None:
+        dlg = CreditDialog(fixed_costs=self.ctx.fixed.list(), parent=self)
+        if dlg.exec():
+            cid = self.ctx.credits.add(dlg.result_model)
+            self._sync_linked_fixed(self.ctx.credits.get(cid))
+            self.ctx.notify_changed()
+
+    def _edit(self) -> None:
+        rid = self._selected_id()
+        if rid is None:
+            return
+        cr = self.ctx.credits.get(rid)
+        if not cr:
+            return
+        dlg = CreditDialog(cr, fixed_costs=self.ctx.fixed.list(), parent=self)
+        if dlg.exec():
+            self.ctx.credits.update(dlg.result_model)
+            self._sync_linked_fixed(dlg.result_model)
+            self.ctx.notify_changed()
+
+    def _delete(self) -> None:
+        rid = self._selected_id()
+        if rid is None:
+            return
+        if QMessageBox.question(self, "Löschen", "Diesen Kredit wirklich löschen?") \
+                == QMessageBox.StandardButton.Yes:
+            self.ctx.credits.delete(rid)
+            self.ctx.notify_changed()
+
+    def _sync_linked_fixed(self, credit) -> None:
+        """Keep the linked fixed-cost row's monthly amount in sync."""
+        if credit is None or credit.linked_fixed_cost_id is None or not credit.monthly_cents:
+            return
+        fc = self.ctx.fixed.get(credit.linked_fixed_cost_id)
+        if fc and fc.amount_cents != credit.monthly_cents:
+            fc.amount_cents = credit.monthly_cents
+            self.ctx.fixed.update(fc)
+
+    def _selected_id(self) -> int | None:
+        row = self.table.currentRow()
+        if row < 0:
+            return None
+        item = self.table.item(row, 0)
+        return item.data(_ROLE_ID) if item else None

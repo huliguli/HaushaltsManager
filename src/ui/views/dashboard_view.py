@@ -1,0 +1,258 @@
+"""Dashboard: month summary cards, availability figures, fixed-cost timeline
+and an expense breakdown chart.
+
+The view rebuilds its body on every ``refresh()`` so it always reflects the
+latest data and the current theme. Numbers come from the budget service and the
+timeline calculator; nothing is computed inline here.
+"""
+
+from __future__ import annotations
+
+from datetime import date
+
+from PyQt6.QtCore import Qt
+from PyQt6.QtWidgets import (
+    QFrame,
+    QGridLayout,
+    QHBoxLayout,
+    QLabel,
+    QScrollArea,
+    QVBoxLayout,
+    QWidget,
+)
+
+from modules.calculator import timeline
+from modules.money import format_eur, format_eur_short
+from ui import theme
+from ui.views.base_view import BaseView
+from ui.widgets.chart_canvas import ChartCanvas
+from ui.widgets.common import StatCard, clear_layout, heading, muted
+
+_MONTHS_DE = ["Januar", "Februar", "März", "April", "Mai", "Juni", "Juli",
+              "August", "September", "Oktober", "November", "Dezember"]
+
+
+class DashboardView(BaseView):
+    def __init__(self, ctx) -> None:
+        super().__init__(ctx)
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setStyleSheet("QScrollArea { background: transparent; border: none; }")
+        outer.addWidget(scroll)
+
+        self._container = QWidget()
+        self._container.setStyleSheet("background: transparent;")
+        self._body = QVBoxLayout(self._container)
+        self._body.setContentsMargins(30, 26, 30, 26)
+        self._body.setSpacing(18)
+        scroll.setWidget(self._container)
+
+    # -- build --------------------------------------------------------------
+    def refresh(self) -> None:
+        clear_layout(self._body)
+        c = self.ctx.colors
+        today = date.today()
+        ov = self.ctx.overview(today.year, today.month)
+
+        header = QHBoxLayout()
+        title_box = QVBoxLayout()
+        title_box.setSpacing(2)
+        title_box.addWidget(heading("Dashboard"))
+        title_box.addWidget(muted(f"Monatsübersicht · {_MONTHS_DE[today.month - 1]} {today.year}"))
+        header.addLayout(title_box)
+        header.addStretch(1)
+        self._body.addLayout(header)
+
+        self._body.addWidget(self._stat_row(ov, c))
+        self._body.addWidget(self._availability_and_chart(ov, c))
+        self._body.addWidget(self._timeline_panel(ov, c))
+        self._body.addStretch(1)
+
+    # -- sections -----------------------------------------------------------
+    def _stat_row(self, ov, c) -> QWidget:
+        row = QWidget()
+        layout = QHBoxLayout(row)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(16)
+
+        income = StatCard("Einnahmen", c["blue"])
+        income.set_value(format_eur(ov.income_cents), c["text"])
+        income.set_hint("Aktive Einnahmequellen")
+
+        fixed = StatCard("Fixkosten", c["amber"])
+        fixed.set_value(format_eur(ov.fixed_cents), c["text"])
+        fixed.set_hint(f"davon Kredite {format_eur(ov.credits_cents)}")
+
+        variable = StatCard("Variable Ausgaben", c["grey"])
+        variable.set_value(format_eur(ov.variable_cents), c["text"])
+        variable.set_hint("Diesen Monat erfasst")
+
+        remaining = StatCard("Verbleibend", c["green"])
+        rem = ov.after_all_cents
+        remaining.set_accent(c["green"] if rem >= 0 else c["red"])
+        remaining.set_value(format_eur(rem), c["green"] if rem >= 0 else c["red"])
+        remaining.set_hint("Nach Fix- und variablen Kosten")
+
+        for card in (income, fixed, variable, remaining):
+            layout.addWidget(card, 1)
+        return row
+
+    def _availability_and_chart(self, ov, c) -> QWidget:
+        row = QWidget()
+        layout = QHBoxLayout(row)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(16)
+
+        # Availability panel
+        panel = QFrame()
+        panel.setObjectName("Card")
+        pl = QVBoxLayout(panel)
+        pl.setContentsMargins(22, 20, 22, 20)
+        pl.setSpacing(14)
+        pl.addWidget(self._panel_title("Verfügbarkeit"))
+
+        pl.addLayout(self._avail_line(
+            "Verfügbar nach Fixkosten", ov.after_fixed_cents,
+            c["green"] if ov.after_fixed_cents >= 0 else c["red"], c, big=True))
+        pl.addLayout(self._avail_line(
+            "Verfügbar nach allem", ov.after_all_cents,
+            c["green"] if ov.after_all_cents >= 0 else c["red"], c))
+        big_purchase = max(0, ov.after_all_cents)
+        line = self._avail_line("Budget für Großanschaffungen", big_purchase, c["blue"], c)
+        pl.addLayout(line)
+        hint = QLabel(f"≈ {format_eur(big_purchase * 12)} pro Jahr ansparbar")
+        hint.setObjectName("Faint")
+        pl.addWidget(hint)
+        pl.addStretch(1)
+        layout.addWidget(panel, 1)
+
+        # Expense breakdown donut
+        chart_panel = QFrame()
+        chart_panel.setObjectName("Card")
+        cl = QVBoxLayout(chart_panel)
+        cl.setContentsMargins(22, 20, 22, 16)
+        cl.addWidget(self._panel_title("Ausgaben nach Kategorie"))
+        canvas = ChartCanvas(c, width=4.2, height=2.6)
+        canvas.setMinimumHeight(230)
+        by_cat = ov.expenses_by_category
+        if by_cat:
+            labels = list(by_cat.keys())
+            values = [v / 100.0 for v in by_cat.values()]
+            cycle = [c["blue"], c["green"], c["amber"], c["red"], c["grey"],
+                     "#7c5cff", "#15b8c4", "#e6699a"]
+            slice_colors = [cycle[i % len(cycle)] for i in range(len(labels))]
+            canvas.donut(labels, values, slice_colors,
+                         center_text=format_eur_short(ov.variable_cents))
+        else:
+            canvas.donut([], [], [])
+        cl.addWidget(canvas)
+        # Legend
+        if by_cat:
+            legend = self._donut_legend(by_cat, c)
+            cl.addWidget(legend)
+        layout.addWidget(chart_panel, 1)
+        return row
+
+    def _timeline_panel(self, ov, c) -> QWidget:
+        panel = QFrame()
+        panel.setObjectName("Card")
+        pl = QVBoxLayout(panel)
+        pl.setContentsMargins(22, 20, 22, 22)
+        pl.setSpacing(8)
+        pl.addWidget(self._panel_title("Fixkosten-Abbau"))
+        sub = QLabel("Wann fällt welche Kosten weg – und was bleibt dann übrig.")
+        sub.setObjectName("Faint")
+        pl.addWidget(sub)
+        pl.addSpacing(6)
+
+        result = timeline.build(ov.income_cents, self.ctx.fixed.list())
+
+        # Current state line.
+        pl.addLayout(self._timeline_row(
+            "Jetzt", f"Fixkosten {format_eur(result.current_fixed_total_cents)}",
+            f"verfügbar {format_eur(result.current_available_cents)}", c["blue"], c, bold=True))
+
+        if not result.events:
+            note = QLabel("Keine befristeten Fixkosten – es fällt aktuell nichts planbar weg.")
+            note.setObjectName("Muted")
+            pl.addSpacing(6)
+            pl.addWidget(note)
+            return panel
+
+        for ev in result.events:
+            names = ", ".join(d.name for d in ev.dropped)
+            left = f"{ev.label}"
+            mid = f"{names} fällt weg  (−{format_eur(ev.dropped_amount_cents)})"
+            right = (f"Fix {format_eur(ev.new_fixed_total_cents)} · "
+                     f"verfügbar {format_eur(ev.available_after_fixed_cents)}")
+            pl.addLayout(self._timeline_event_row(left, mid, right, c))
+        return panel
+
+    # -- small builders -----------------------------------------------------
+    def _panel_title(self, text: str) -> QLabel:
+        lbl = QLabel(text)
+        lbl.setObjectName("H2")
+        return lbl
+
+    def _avail_line(self, label: str, cents: int, color: str, c, big: bool = False) -> QHBoxLayout:
+        row = QHBoxLayout()
+        name = QLabel(label)
+        name.setObjectName("Muted")
+        value = QLabel(format_eur(cents))
+        value.setStyleSheet(
+            f"color: {color}; font-weight: 700; font-size: {22 if big else 16}px;")
+        value.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        row.addWidget(name)
+        row.addStretch(1)
+        row.addWidget(value)
+        return row
+
+    def _donut_legend(self, by_cat: dict, c) -> QWidget:
+        wrap = QWidget()
+        grid = QGridLayout(wrap)
+        grid.setContentsMargins(0, 6, 0, 0)
+        grid.setHorizontalSpacing(16)
+        grid.setVerticalSpacing(4)
+        cycle = [c["blue"], c["green"], c["amber"], c["red"], c["grey"],
+                 "#7c5cff", "#15b8c4", "#e6699a"]
+        for i, (cat, val) in enumerate(by_cat.items()):
+            dot = QLabel("●")
+            dot.setStyleSheet(f"color: {cycle[i % len(cycle)]}; font-size: 13px;")
+            text = QLabel(f"{cat}  {format_eur(val)}")
+            text.setObjectName("Faint")
+            r, col = divmod(i, 2)
+            cell = QHBoxLayout()
+            cell.setSpacing(6)
+            cell.addWidget(dot)
+            cell.addWidget(text)
+            cell.addStretch(1)
+            holder = QWidget()
+            holder.setLayout(cell)
+            grid.addWidget(holder, r, col)
+        return wrap
+
+    def _timeline_row(self, left: str, mid: str, right: str, color: str, c,
+                      bold: bool = False) -> QHBoxLayout:
+        row = QHBoxLayout()
+        dot = QLabel("●")
+        dot.setStyleSheet(f"color: {color}; font-size: 14px;")
+        l = QLabel(f"<b>{left}</b>" if bold else left)
+        l.setMinimumWidth(90)
+        m = QLabel(mid)
+        m.setObjectName("Muted")
+        r = QLabel(right)
+        r.setStyleSheet(f"color: {c['text']}; font-weight: 600;")
+        r.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        row.addWidget(dot)
+        row.addWidget(l)
+        row.addWidget(m)
+        row.addStretch(1)
+        row.addWidget(r)
+        return row
+
+    def _timeline_event_row(self, left: str, mid: str, right: str, c) -> QHBoxLayout:
+        return self._timeline_row(left, mid, right, c["green"], c)
