@@ -44,6 +44,12 @@ dist/
 *.spec.bak
 *.manifest
 
+# --- Code-signing material (NEVER commit) -------------------------------
+cert/
+*.pfx
+*.cer
+*.snk
+
 # --- Icon preview / intermediate renders (sources app.ico/app.svg are kept) --
 assets/concept_*.png
 assets/concepts_preview.png

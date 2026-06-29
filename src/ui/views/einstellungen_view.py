@@ -139,7 +139,7 @@ class EinstellungenView(BaseView):
         progress.setWindowModality(Qt.WindowModality.WindowModal)
         progress.setAutoClose(False)
 
-        self._installer = updater.UpdateInstaller(info.asset_url)
+        self._installer = updater.UpdateInstaller(info.asset_url, info.hash_url)
         self._installer.progress.connect(progress.setValue)
         self._installer.failed.connect(lambda msg: self._install_failed(progress, msg))
         self._installer.ready.connect(lambda path: self._install_ready(progress, path))

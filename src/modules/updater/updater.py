@@ -59,6 +59,7 @@ class UpdateInfo:
     notes: str              # release body / changelog
     asset_url: str          # browser_download_url of the .exe asset
     html_url: str           # release page (fallback link)
+    hash_url: str = ""      # browser_download_url of the .sha256 asset (optional)
 
 
 def parse_version(text: str) -> tuple[int, ...]:
@@ -105,11 +106,13 @@ def check_for_update(repo: str, current_version: str) -> UpdateInfo | None:
         return None
 
     asset_url = ""
+    hash_url = ""
     for asset in data.get("assets", []):
         name = (asset.get("name") or "").lower()
-        if name.endswith(".exe"):
+        if name.endswith(".sha256"):
+            hash_url = asset.get("browser_download_url", "")
+        elif name.endswith(".exe") and not asset_url:
             asset_url = asset.get("browser_download_url", "")
-            break
 
     return UpdateInfo(
         version=tag.lstrip("vV"),
@@ -117,7 +120,34 @@ def check_for_update(repo: str, current_version: str) -> UpdateInfo | None:
         notes=data.get("body") or "Keine Änderungshinweise vorhanden.",
         asset_url=asset_url,
         html_url=data.get("html_url") or f"https://github.com/{repo}/releases/latest",
+        hash_url=hash_url,
     )
+
+
+def _parse_sha256(text: str) -> str | None:
+    """Extract the first 64-hex SHA-256 digest from a checksum file's text."""
+    match = re.search(r"[0-9a-fA-F]{64}", text or "")
+    return match.group(0).lower() if match else None
+
+
+def sha256_of_file(path: str) -> str:
+    """Streaming SHA-256 of a file (lower-case hex)."""
+    import hashlib
+    digest = hashlib.sha256()
+    with open(path, "rb") as fh:
+        for chunk in iter(lambda: fh.read(1 << 20), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def fetch_checksum(hash_url: str) -> str | None:
+    """Download a .sha256 asset over HTTPS and return the expected digest."""
+    if not _https_github(hash_url):
+        return None
+    req = urllib.request.Request(hash_url, headers={"User-Agent": _USER_AGENT})
+    ctx = ssl.create_default_context()
+    with urllib.request.urlopen(req, timeout=15, context=ctx) as resp:
+        return _parse_sha256(resp.read(4096).decode("utf-8", "replace"))
 
 
 def download_asset(asset_url: str, progress_cb=None, should_interrupt=None) -> str | None:
@@ -218,9 +248,10 @@ class UpdateInstaller(QThread):
     ready = pyqtSignal(str)     # path to the downloaded exe
     failed = pyqtSignal(str)
 
-    def __init__(self, asset_url: str, parent=None) -> None:
+    def __init__(self, asset_url: str, hash_url: str = "", parent=None) -> None:
         super().__init__(parent)
         self._asset_url = asset_url
+        self._hash_url = hash_url
 
     def cancel(self) -> None:
         """Request a cooperative cancel (checked inside the download loop)."""
@@ -232,6 +263,21 @@ class UpdateInstaller(QThread):
                 self._asset_url, self.progress.emit, self.isInterruptionRequested)
             if path is None:
                 return  # cancelled; the temp file was already removed
+            # If the release ships a checksum, verify the download against it.
+            # A mismatch is fatal (reject); a failure to fetch the checksum is
+            # only logged (HTTPS already protects authenticity/integrity).
+            if self._hash_url:
+                try:
+                    expected = fetch_checksum(self._hash_url)
+                except Exception as exc:  # noqa: BLE001
+                    _log.info("Prüfsummen-Abruf übersprungen: %s", exc)
+                    expected = None
+                if expected and sha256_of_file(path).lower() != expected:
+                    _safe_remove(path)
+                    self.failed.emit(
+                        "Die Prüfsumme der heruntergeladenen Datei stimmt nicht "
+                        "überein. Das Update wurde aus Sicherheitsgründen abgebrochen.")
+                    return
             self.ready.emit(path)
         except Exception as exc:  # noqa: BLE001
             self.failed.emit(str(exc))

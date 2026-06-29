@@ -1,7 +1,9 @@
 name: Build and Release
 
-# Builds the single-file Windows .exe when a GitHub release is published and
-# attaches it as a release asset (used by the in-app updater).
+# Builds the single-file Windows .exe when a GitHub release is published,
+# signs it (if a code-signing certificate is configured as a secret), and
+# attaches the signed .exe plus its checksum as release assets. The in-app
+# updater downloads the .exe and verifies it against the .sha256.
 on:
   release:
     types: [published]
@@ -33,10 +35,26 @@ jobs:
       - name: Executable bauen
         run: python -m PyInstaller --noconfirm --clean HaushaltsManager.spec
 
-      - name: SHA-256 erzeugen
+      # Sign before the checksum so the published .sha256 matches the SIGNED file.
+      - name: Signieren (falls Zertifikat hinterlegt)
+        shell: pwsh
+        env:
+          PFX_B64: ${{ secrets.CODESIGN_PFX_BASE64 }}
+          PFX_PW: ${{ secrets.CODESIGN_PFX_PASSWORD }}
+        run: |
+          if (-not $env:PFX_B64) { Write-Host "Kein Signatur-Zertifikat hinterlegt - ueberspringe."; exit 0 }
+          [IO.File]::WriteAllBytes("cert.pfx", [Convert]::FromBase64String($env:PFX_B64))
+          $ok = $true
+          try { ./sign.ps1 -File dist\HaushaltsManager.exe -Pfx cert.pfx -Password $env:PFX_PW }
+          catch { $ok = $false; Write-Host "Signieren fehlgeschlagen: $_" }
+          finally { Remove-Item cert.pfx -Force -ErrorAction SilentlyContinue }
+          if (-not $ok) { exit 1 }
+          exit 0
+
+      - name: SHA-256 erzeugen (nach dem Signieren)
         shell: pwsh
         run: |
-          (Get-FileHash dist\HaushaltsManager.exe -Algorithm SHA256).Hash |
+          (Get-FileHash dist\HaushaltsManager.exe -Algorithm SHA256).Hash.ToLower() |
             Set-Content -NoNewline dist\HaushaltsManager.exe.sha256
 
       - name: Release-Assets hochladen
@@ -52,4 +70,6 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: HaushaltsManager-exe
-          path: dist/HaushaltsManager.exe
+          path: |
+            dist/HaushaltsManager.exe
+            dist/HaushaltsManager.exe.sha256
