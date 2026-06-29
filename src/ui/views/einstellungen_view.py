@@ -112,20 +112,12 @@ class EinstellungenView(BaseView):
         self.show_update_dialog(info)
 
     def show_update_dialog(self, info) -> None:
-        box = QMessageBox(self)
-        box.setIcon(QMessageBox.Icon.Information)
-        box.setWindowTitle("Update verfügbar")
-        box.setText(f"Version v{info.version} ist verfügbar.")
-        box.setInformativeText("Änderungen anzeigen über „Details“.")
-        box.setDetailedText(info.notes)
-        install = box.addButton("Herunterladen & installieren", QMessageBox.ButtonRole.AcceptRole)
-        box.addButton("Später", QMessageBox.ButtonRole.RejectRole)
-        skip = box.addButton("Diese Version überspringen", QMessageBox.ButtonRole.DestructiveRole)
-        box.exec()
-        clicked = box.clickedButton()
-        if clicked is skip:
+        from ui.update_dialog import UpdateDialog
+        dlg = UpdateDialog(info, self.ctx.colors, self)
+        dlg.exec()
+        if dlg.choice == "skip":
             self.ctx.config.set("skipped_version", info.tag)
-        elif clicked is install:
+        elif dlg.choice == "install":
             self._install(info)
 
     def _install(self, info) -> None:

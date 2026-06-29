@@ -116,6 +116,16 @@ QToolTip {{
     border-radius: 6px;
 }}
 
+/* ---- Dialogs (force app-theme colours so they don't follow the OS dark/light
+        mode, which previously made message-box text unreadable) ---- */
+QDialog, QMessageBox, QInputDialog {{
+    background: {c['bg']};
+}}
+QMessageBox QLabel, QInputDialog QLabel {{
+    color: {c['text']};
+    background: transparent;
+}}
+
 /* ---- Sidebar ---- */
 QWidget#Sidebar {{
     background: {c['sidebar']};
