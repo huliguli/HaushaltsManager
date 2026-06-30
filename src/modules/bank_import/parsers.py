@@ -343,16 +343,30 @@ def _csv_amount(row: list, mapping: dict[str, int | None]) -> int | None:
 
 
 # --- PDF (best-effort) -----------------------------------------------------
+# Inline layout (date and amount on one line) — used as a fallback.
 _PDF_DATE = re.compile(r"\b(\d{2}\.\d{2}\.(?:\d{4}|\d{2}))\b")
 _PDF_AMOUNT = re.compile(r"-?\d{1,3}(?:\.\d{3})*,\d{2}\b")
+# A line that is *only* a date / *only* a euro amount — the building blocks of
+# the common tabular layout where each posting is serialised as separate lines
+# (booking date / text / amount / value date / purpose...).
+_PDF_LINE_DATE = re.compile(r"^(?:\d{2}\.\d{2}\.\d{4}|\d{4}-\d{2}-\d{2}|\d{2}/\d{2}/\d{4})$")
+_PDF_LINE_AMOUNT = re.compile(r"^-?\d{1,3}(?:\.\d{3})*,\d{2}$")
+# Description words that mark a summary/info row, not a real posting (so a
+# "Neuer Saldo  658,63" line is never imported as a transaction).
+_PDF_NON_TX = re.compile(
+    r"(?i)\b(saldo|kontostand|freistellungsauftrag|sparer-?pauschbetrag|"
+    r"übertrag|uebertrag|zwischensumme|gesamtsumme|summe\b)")
 
 
 def parse_pdf(path: str | Path) -> list[BankTransaction]:
-    """Best-effort: pull lines that look like 'date ... amount' out of the PDF.
+    """Best-effort PDF parsing for both common statement layouts.
 
-    Bank PDFs have no fixed layout, so results are flagged low-confidence and the
-    sign defaults to expense — the review screen lets the user fix both. Never
-    blocks the flow; a PDF with no recognisable rows raises a clear message.
+    Many bank PDFs (ING, DKB, Sparkasse …) serialise each posting vertically as
+    separate lines — booking date, description, amount, value date, then the
+    purpose — rather than one line per booking. The primary pass recognises that
+    tabular shape; if it finds nothing, a fallback scans for the older
+    "date … amount on one line" shape. Results are low-confidence and the review
+    screen lets the user fix category and sign before anything is saved.
     """
     _check_size(path, _MAX_PDF_BYTES)
     from modules.file_handler import pdf_import
@@ -361,9 +375,73 @@ def parse_pdf(path: str | Path) -> list[BankTransaction]:
     except Exception as exc:  # noqa: BLE001
         raise BankImportError(f"Das PDF konnte nicht gelesen werden: {exc}") from exc
 
+    lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
+    out = _parse_pdf_tabular(lines) or _parse_pdf_inline(lines)
+    if not out:
+        raise BankImportError(
+            "Im PDF wurden keine Buchungszeilen erkannt. Bitte einen CAMT-, "
+            "MT940- oder CSV-Export der Bank verwenden.")
+    return out
+
+
+def _parse_pdf_tabular(lines: list[str]) -> list[BankTransaction]:
+    """Vertical/tabular layout: rows of [date, text…, amount, date, purpose…].
+
+    A posting is anchored on an amount-only line that has a booking date a few
+    lines above (with the description in between) AND a value date directly
+    below — the signature of a statement table row. That structural test alone
+    excludes balances/totals; a stop-word check on the description is a second
+    guard. The amount keeps its own sign (+ credit / − debit).
+    """
+    n = len(lines)
     out: list[BankTransaction] = []
-    for raw in text.splitlines():
-        line = raw.strip()
+    for i in range(n):
+        if not _PDF_LINE_AMOUNT.match(lines[i]):
+            continue
+        # Walk back over up to 3 text lines to the booking date.
+        desc: list[str] = []
+        j = i - 1
+        while (j >= 0 and len(desc) < 3
+               and not _PDF_LINE_DATE.match(lines[j])
+               and not _PDF_LINE_AMOUNT.match(lines[j])):
+            desc.insert(0, lines[j])
+            j -= 1
+        if j < 0 or not _PDF_LINE_DATE.match(lines[j]) or not desc:
+            continue
+        # The value date must directly follow the amount (table-row signal).
+        if i + 1 >= n or not _PDF_LINE_DATE.match(lines[i + 1]):
+            continue
+        payee = " ".join(desc).strip()
+        if _PDF_NON_TX.search(payee):
+            continue
+        try:
+            cents = parse_eur(lines[i])
+        except MoneyParseError:
+            continue
+        if cents == 0:
+            continue
+        # Purpose: the text lines after the value date, up to the next row.
+        purpose: list[str] = []
+        k = i + 2
+        while (k < n and len(purpose) < 6
+               and not _PDF_LINE_DATE.match(lines[k])
+               and not _PDF_LINE_AMOUNT.match(lines[k])):
+            purpose.append(lines[k])
+            k += 1
+        out.append(BankTransaction(
+            booking_date=parse_date_flex(lines[j]) or "",
+            amount_cents=cents, payee=payee[:140],
+            purpose=" ".join(purpose)[:160],
+            value_date=parse_date_flex(lines[i + 1]),
+            source_format="pdf", confidence=CONFIDENCE_LOW,
+            raw=f"{lines[j]} | {payee} | {lines[i]}"[:200]))
+    return out
+
+
+def _parse_pdf_inline(lines: list[str]) -> list[BankTransaction]:
+    """Fallback: a date and an amount on the same line (older simple layout)."""
+    out: list[BankTransaction] = []
+    for line in lines:
         date_m = _PDF_DATE.search(line)
         amounts = _PDF_AMOUNT.findall(line)
         if not date_m or not amounts:
@@ -374,13 +452,10 @@ def parse_pdf(path: str | Path) -> list[BankTransaction]:
             continue
         if cents == 0:
             continue
-        booking = parse_date_flex(date_m.group(1)) or ""
-        signed = cents if amounts[-1].startswith("-") else -cents  # default: expense
+        # Keep the amount's own sign; an unsigned figure defaults to an expense.
+        signed = cents if amounts[-1].lstrip().startswith("-") else -abs(cents)
         out.append(BankTransaction(
-            booking_date=booking, amount_cents=signed, purpose=line[:160],
-            source_format="pdf", confidence=CONFIDENCE_LOW, raw=line[:200]))
-    if not out:
-        raise BankImportError(
-            "Im PDF wurden keine Buchungszeilen erkannt. Bitte einen CAMT-, "
-            "MT940- oder CSV-Export der Bank verwenden.")
+            booking_date=parse_date_flex(date_m.group(1)) or "", amount_cents=signed,
+            purpose=line[:160], source_format="pdf", confidence=CONFIDENCE_LOW,
+            raw=line[:200]))
     return out

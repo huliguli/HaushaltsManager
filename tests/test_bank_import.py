@@ -152,6 +152,48 @@ def test_corrupt_inputs_raise_clean_error(tmp_path):
                                                            "debit": None, "credit": None})
 
 
+# --- PDF layout parsing (synthetic, anonymised lines) ----------------------
+def test_pdf_tabular_layout_extracts_rows():
+    # The common vertical bank-statement layout: each posting is serialised as
+    # separate lines [booking, description, amount, value-date, purpose...].
+    # The amount keeps its own sign (+ credit / - debit), and a "Neuer Saldo"
+    # summary row must NOT be picked up as a transaction.
+    lines = [
+        "Buchung", "Buchung / Verwendungszweck", "Betrag (EUR)", "Valuta",
+        "04.05.2026", "Gutschrift Max Mustermann", "30,00", "01.05.2026", "Taschengeld",
+        "05.05.2026", "Lastschrift VISA ARAL STATION 12345", "-49,29", "05.05.2026",
+        "06.05.2026", "Lastschrift Muster Versicherung AG", "-112,08", "06.05.2026",
+        "Beitrag Mai",
+        "Neuer Saldo", "658,63", "Kunden-Information",   # summary -> not a posting
+    ]
+    txs = parsers._parse_pdf_tabular(lines)
+    assert len(txs) == 3                                  # the Saldo row is excluded
+    credit, fuel, insurance = txs
+    assert credit.amount_cents == 3000 and credit.is_income      # sign kept (+)
+    assert credit.booking_date == "2026-05-04" and credit.value_date == "2026-05-01"
+    assert fuel.amount_cents == -4929 and "ARAL" in fuel.payee
+    assert insurance.amount_cents == -11208
+    # The merchants flow into the categoriser via payee.
+    Categorizer().categorize_all(txs)
+    assert fuel.category == "Auto & Tanken"
+    assert insurance.category == "Versicherung"
+
+
+def test_pdf_inline_layout_fallback():
+    # Older simple layout: date and amount on the same line. Used only when the
+    # tabular pass finds nothing.
+    lines = [
+        "Kontoauszug Juni 2026",
+        "01.06.2026 SUPERMARKT MUSTER FILIALE 7 -34,90",
+        "02.06.2026 Lastschrift Muster GmbH -120,45",
+    ]
+    assert parsers._parse_pdf_tabular(lines) == []        # no tabular rows here
+    txs = parsers._parse_pdf_inline(lines)
+    assert len(txs) == 2
+    assert txs[0].amount_cents == -3490 and txs[0].booking_date == "2026-06-01"
+    assert txs[1].amount_cents == -12045
+
+
 # --- categorisation --------------------------------------------------------
 def _tx(payee="", purpose="", amount=-1000):
     return BankTransaction(booking_date="2026-06-05", amount_cents=amount,
