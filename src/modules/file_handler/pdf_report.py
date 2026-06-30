@@ -27,7 +27,7 @@ from reportlab.platypus import (
 
 from modules import dates
 from modules.calculator import timeline
-from modules.money import format_eur
+from modules.money import format_eur, format_eur_short
 
 _MONTHS_DE = ["Januar", "Februar", "März", "April", "Mai", "Juni", "Juli",
               "August", "September", "Oktober", "November", "Dezember"]
@@ -46,22 +46,40 @@ def _styles():
 
 
 def _donut_png(by_category: dict[str, int]) -> bytes | None:
-    """Render an expense donut to PNG bytes, or None if there is no data."""
+    """Render the expense donut to PNG bytes, or None if there is no data.
+
+    Percentages sit centred *inside the ring* (pctdistance tuned to the 0.42
+    wedge width — the matplotlib default 0.6 dropped them into the hole), the
+    monthly total is in the centre and a category legend with euro amounts sits
+    on the right.
+    """
     if not by_category:
         return None
-    fig = Figure(figsize=(4.2, 2.8), dpi=150)
+    fig = Figure(figsize=(6.2, 3.1), dpi=150)
     FigureCanvasAgg(fig)
     ax = fig.add_subplot(111)
     cycle = ["#2f6bd8", "#1f9d57", "#d98817", "#d6453d", "#8a93a3",
              "#7c5cff", "#15b8c4", "#e6699a"]
-    labels = list(by_category.keys())
-    values = [v / 100.0 for v in by_category.values()]
+    items = list(by_category.items())
+    labels = [k for k, _ in items]
+    values = [v / 100.0 for _, v in items]
+    total_cents = sum(v for _, v in items)
     slice_colors = [cycle[i % len(cycle)] for i in range(len(labels))]
-    ax.pie(values, labels=labels, colors=slice_colors, startangle=90, counterclock=False,
-           autopct=lambda p: f"{p:.0f}%", textprops={"fontsize": 8},
-           wedgeprops=dict(width=0.42, edgecolor="white", linewidth=2))
+    wedges, _texts, _autotexts = ax.pie(
+        values, colors=slice_colors, startangle=90, counterclock=False,
+        autopct=lambda p: f"{p:.0f} %" if p >= 6 else "",  # hide labels on slivers
+        pctdistance=0.80,
+        textprops={"color": "white", "fontsize": 8, "fontweight": "bold"},
+        wedgeprops=dict(width=0.42, edgecolor="white", linewidth=2),
+    )
     ax.set(aspect="equal")
-    fig.subplots_adjust(left=0.0, right=1.0, top=1.0, bottom=0.0)
+    ax.text(0, 0, format_eur_short(total_cents), ha="center", va="center",
+            fontsize=12, fontweight="bold", color="#1b2330")
+    legend_labels = [f"{lab}  ·  {format_eur(by_category[lab])}" for lab in labels]
+    ax.legend(wedges, legend_labels, loc="center left", bbox_to_anchor=(0.98, 0.5),
+              frameon=False, fontsize=8.5)
+    # Leave the right ~40 % of the figure for the legend; donut fills the left.
+    fig.subplots_adjust(left=0.00, right=0.60, top=0.97, bottom=0.03)
     buf = io.BytesIO()
     fig.savefig(buf, format="png", transparent=True)
     buf.seek(0)
@@ -136,7 +154,7 @@ def generate_monthly_report(
     png = _donut_png(overview.expenses_by_category)
     if png:
         story.append(Paragraph("Ausgaben nach Kategorie", styles["HMSection"]))
-        story.append(Image(io.BytesIO(png), width=110 * mm, height=73 * mm))
+        story.append(Image(io.BytesIO(png), width=168 * mm, height=84 * mm))
         story.append(Spacer(1, 4 * mm))
 
     # Fixed-cost timeline

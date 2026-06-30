@@ -257,8 +257,6 @@ QCheckBox::indicator {{ width: 18px; height: 18px; border-radius: 5px;
     border: 1px solid {c['border_strong']}; background: {c['surface']}; }}
 QCheckBox::indicator:hover {{ border-color: {c['primary']}; }}
 QCheckBox::indicator:checked {{ background: {c['primary']}; border-color: {c['primary']}; }}
-QCheckBox:focus {{ outline: none; }}
-QCheckBox:focus::indicator {{ border: 2px solid {c['focus']}; }}
 
 /* ---- Tables ---- */
 QTableWidget, QTableView {{
