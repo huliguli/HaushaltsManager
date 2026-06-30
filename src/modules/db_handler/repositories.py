@@ -103,12 +103,63 @@ class VariableExpenseRepository:
         self.db = db
 
     def list_for_range(self, start_iso: str, end_iso: str) -> list[VariableExpense]:
+        """One-off (non-recurring) expenses dated within the range."""
         rows = self.db.query(
-            "SELECT * FROM variable_expenses WHERE date >= ? AND date <= ? "
-            "ORDER BY date DESC, id DESC",
+            "SELECT * FROM variable_expenses WHERE recurring = 0 "
+            "AND date >= ? AND date <= ? ORDER BY date DESC, id DESC",
             (start_iso, end_iso),
         )
         return [VariableExpense.from_row(r) for r in rows]
+
+    # -- monthly view (one-off expenses + recurring occurrences) ------------
+    @staticmethod
+    def _month_bounds(year: int, month: int) -> tuple[str, str, int]:
+        import calendar
+        last = calendar.monthrange(year, month)[1]
+        return f"{year:04d}-{month:02d}-01", f"{year:04d}-{month:02d}-{last:02d}", last
+
+    def _recurring_occurrences(self, year: int, month: int) -> list[VariableExpense]:
+        """Recurring templates that have started by (year, month), each returned
+        as a virtual expense dated within that month (day clamped to its length).
+
+        The returned occurrence keeps the template's ``id`` so edit/delete in the
+        UI act on the template (i.e. on every month at once).
+        """
+        _start, end, last = self._month_bounds(year, month)
+        rows = self.db.query(
+            "SELECT * FROM variable_expenses WHERE recurring = 1 AND date <= ? ORDER BY id",
+            (end,),
+        )
+        out: list[VariableExpense] = []
+        for r in rows:
+            t = VariableExpense.from_row(r)
+            try:
+                day = min(int(t.date[8:10]), last)
+            except (ValueError, IndexError):
+                day = 1
+            out.append(VariableExpense(
+                id=t.id, date=f"{year:04d}-{month:02d}-{day:02d}", amount_cents=t.amount_cents,
+                category=t.category, description=t.description, receipt_path=t.receipt_path,
+                recurring=True))
+        return out
+
+    def list_for_month(self, year: int, month: int) -> list[VariableExpense]:
+        start, end, _ = self._month_bounds(year, month)
+        items = self.list_for_range(start, end) + self._recurring_occurrences(year, month)
+        items.sort(key=lambda e: (e.date, e.id or 0), reverse=True)
+        return items
+
+    def total_for_month(self, year: int, month: int) -> int:
+        start, end, _ = self._month_bounds(year, month)
+        recurring = sum(o.amount_cents for o in self._recurring_occurrences(year, month))
+        return self.total_for_range(start, end) + recurring
+
+    def by_category_for_month(self, year: int, month: int) -> dict[str, int]:
+        start, end, _ = self._month_bounds(year, month)
+        agg = dict(self.by_category_for_range(start, end))
+        for o in self._recurring_occurrences(year, month):
+            agg[o.category] = agg.get(o.category, 0) + o.amount_cents
+        return dict(sorted(agg.items(), key=lambda kv: kv[1], reverse=True))
 
     def list_recent(self, limit: int = 200) -> list[VariableExpense]:
         rows = self.db.query(
@@ -135,7 +186,7 @@ class VariableExpenseRepository:
     def total_for_range(self, start_iso: str, end_iso: str) -> int:
         row = self.db.query_one(
             "SELECT COALESCE(SUM(amount_cents), 0) AS total FROM variable_expenses "
-            "WHERE date >= ? AND date <= ?",
+            "WHERE recurring = 0 AND date >= ? AND date <= ?",
             (start_iso, end_iso),
         )
         return int(row["total"]) if row else 0
@@ -143,7 +194,7 @@ class VariableExpenseRepository:
     def by_category_for_range(self, start_iso: str, end_iso: str) -> dict[str, int]:
         rows = self.db.query(
             "SELECT category, COALESCE(SUM(amount_cents), 0) AS total "
-            "FROM variable_expenses WHERE date >= ? AND date <= ? "
+            "FROM variable_expenses WHERE recurring = 0 AND date >= ? AND date <= ? "
             "GROUP BY category ORDER BY total DESC",
             (start_iso, end_iso),
         )

@@ -219,9 +219,12 @@ def export_workbook(
     r, total = hr + 1, 0
     for i, e in enumerate(expenses):
         z = i % 2 == 1
+        desc = e.description or ""
+        if getattr(e, "recurring", False):
+            desc = (f"{desc}  (monatlich)").strip()
         _cell(ws, r, 1, dates.format_date(e.date), zebra=z)
         _cell(ws, r, 2, _safe_text(e.category), zebra=z)
-        _cell(ws, r, 3, _safe_text(e.description), zebra=z)
+        _cell(ws, r, 3, _safe_text(desc), zebra=z)
         _cell(ws, r, 4, _euros(e.amount_cents), money=True, zebra=z)
         total += e.amount_cents
         r += 1

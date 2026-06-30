@@ -63,6 +63,70 @@ def test_variable_aggregates(tmp_path):
     db.close()
 
 
+def test_recurring_expense_appears_every_month(tmp_path):
+    db = _db(tmp_path)
+    repo = VariableExpenseRepository(db)
+    repo.add(VariableExpense("2026-06-05", 3_000, "Lebensmittel", "Edeka"))
+    repo.add(VariableExpense("2026-06-15", 5_000, "Freizeit", "Abo", recurring=True))
+
+    # June: one-off + recurring.
+    assert repo.total_for_month(2026, 6) == 8_000
+    assert {e.amount_cents for e in repo.list_for_month(2026, 6)} == {3_000, 5_000}
+    # July: only the recurring, materialised into July.
+    july = repo.list_for_month(2026, 7)
+    assert len(july) == 1
+    assert july[0].amount_cents == 5_000 and july[0].recurring is True
+    assert july[0].date.startswith("2026-07") and july[0].id is not None
+    assert repo.total_for_month(2026, 7) == 5_000
+    # May (before the start): nothing.
+    assert repo.list_for_month(2026, 5) == []
+    assert repo.total_for_month(2026, 5) == 0
+    db.close()
+
+
+def test_recurring_by_category_and_day_clamp(tmp_path):
+    db = _db(tmp_path)
+    repo = VariableExpenseRepository(db)
+    repo.add(VariableExpense("2026-01-31", 2_000, "Haushalt", "Putzmittel", recurring=True))
+    feb = repo.list_for_month(2026, 2)               # 2026 February has 28 days
+    assert feb[0].date == "2026-02-28"               # day clamped to month length
+    assert repo.by_category_for_month(2026, 2)["Haushalt"] == 2_000
+    db.close()
+
+
+def test_recurring_excluded_from_raw_range(tmp_path):
+    # Range aggregates count only one-off expenses; the month methods add the
+    # recurring ones, so the dashboard never double-counts.
+    db = _db(tmp_path)
+    repo = VariableExpenseRepository(db)
+    repo.add(VariableExpense("2026-06-05", 3_000, "Lebensmittel"))
+    repo.add(VariableExpense("2026-06-15", 5_000, "Freizeit", recurring=True))
+    assert repo.total_for_range("2026-06-01", "2026-06-30") == 3_000
+    db.close()
+
+
+def test_migration_adds_recurring_column(tmp_path):
+    import sqlite3
+    path = tmp_path / "old.db"
+    # Simulate a pre-1.4.0 database: variable_expenses without the recurring column.
+    con = sqlite3.connect(path)
+    con.execute(
+        "CREATE TABLE variable_expenses (id INTEGER PRIMARY KEY AUTOINCREMENT, "
+        "date TEXT NOT NULL, amount_cents INTEGER NOT NULL DEFAULT 0, "
+        "category TEXT NOT NULL DEFAULT 'Sonstiges', description TEXT, "
+        "receipt_path TEXT, created_at TEXT NOT NULL DEFAULT (datetime('now')))")
+    con.execute("INSERT INTO variable_expenses (date, amount_cents, category) "
+                "VALUES ('2026-06-01', 1000, 'Lebensmittel')")
+    con.commit()
+    con.close()
+    # Opening through Database must add the column and keep the existing row.
+    db = Database(path)
+    items = VariableExpenseRepository(db).list_for_month(2026, 6)
+    assert len(items) == 1
+    assert items[0].recurring is False and items[0].amount_cents == 1000
+    db.close()
+
+
 def test_credit_and_settings(tmp_path):
     db = _db(tmp_path)
     credits = CreditRepository(db)

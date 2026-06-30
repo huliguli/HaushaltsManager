@@ -128,11 +128,12 @@ class FixedCost:
 
 @dataclass
 class VariableExpense:
-    date: str                          # ISO
+    date: str                          # ISO (for a recurring item: its start month)
     amount_cents: int = 0
     category: str = "Sonstiges"
     description: str = ""
     receipt_path: str | None = None
+    recurring: bool = False            # True = monthly-recurring template
     id: int | None = None
 
     @staticmethod
@@ -144,6 +145,7 @@ class VariableExpense:
             category=row["category"],
             description=row["description"] or "",
             receipt_path=row["receipt_path"],
+            recurring=bool(row["recurring"]),
         )
 
     def to_params(self) -> dict:
@@ -153,6 +155,7 @@ class VariableExpense:
             "category": self.category,
             "description": self.description or None,
             "receipt_path": self.receipt_path,
+            "recurring": 1 if self.recurring else 0,
         }
 
 

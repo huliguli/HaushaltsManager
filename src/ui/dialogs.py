@@ -227,10 +227,15 @@ class ExpenseDialog(_BaseDialog):
         rl.addWidget(self.receipt, 1)
         rl.addWidget(browse)
 
-        self.add_row(labelled("Datum", self.date), labelled("Betrag", self.amount))
+        self.recurring = QCheckBox("Monatlich wiederkehrend (erscheint automatisch in jedem Folgemonat)")
+        self.recurring.setChecked(item.recurring if item else False)
+
+        self.add_row(labelled("Datum (bei wiederkehrend: ab diesem Monat)", self.date),
+                     labelled("Betrag", self.amount))
         self.add_row(labelled("Kategorie", self.category),
                      labelled("Beschreibung", self.description))
         self.add_row(labelled("Beleg (optional)", receipt_row))
+        self.add_row(self.recurring)
 
     def _browse_receipt(self) -> None:
         path, _ = QFileDialog.getOpenFileName(
@@ -252,6 +257,7 @@ class ExpenseDialog(_BaseDialog):
             category=self.category.currentText(),
             description=self.description.text().strip(),
             receipt_path=self.receipt.text().strip() or None,
+            recurring=self.recurring.isChecked(),
         )
 
 

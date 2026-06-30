@@ -25,7 +25,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from modules import budget, dates
+from modules import dates
 from modules.models import (
     FIXED_CATEGORIES,
     INCOME_TYPE_LABELS,
@@ -356,15 +356,19 @@ class _ExpensesTab(QWidget):
 
     def refresh(self) -> None:
         self.month_label.setText(f"{self._MONTHS_DE[self._month - 1]} {self._year}")
-        start, end = budget.month_bounds(self._year, self._month)
-        items = self.ctx.expenses.list_for_range(start, end)
+        # Month view: one-off expenses of this month + every recurring expense
+        # that has started by now (materialised on the fly).
+        items = self.ctx.expenses.list_for_month(self._year, self._month)
         self.table.setRowCount(len(items))
         for r, it in enumerate(items):
             d = _text_item(dates.format_date(it.date))
             d.setData(_ROLE_ID, it.id)
             self.table.setItem(r, 0, d)
             self.table.setItem(r, 1, _text_item(it.category))
-            self.table.setItem(r, 2, _text_item(it.description or ""))
+            desc = it.description or ""
+            if it.recurring:                       # mark the monthly-recurring rows
+                desc = f"↻ {desc}" if desc else "↻ monatlich"
+            self.table.setItem(r, 2, _text_item(desc))
             self.table.setItem(r, 3, _money_item(it.amount_cents))
         header = self.table.horizontalHeader()
         header.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
@@ -372,7 +376,8 @@ class _ExpensesTab(QWidget):
             header.setSectionResizeMode(col, QHeaderView.ResizeMode.ResizeToContents)
         align_table_headers(self.table, right_cols=(3,))
         self._panel.update_state()
-        self.total.setText(f"Summe: {format_eur(self.ctx.expenses.total_for_range(start, end))}")
+        self.total.setText(
+            f"Summe: {format_eur(self.ctx.expenses.total_for_month(self._year, self._month))}")
 
     def _add(self) -> None:
         dlg = ExpenseDialog(parent=self)
@@ -396,8 +401,10 @@ class _ExpensesTab(QWidget):
         rid = _selected_id(self.table)
         if rid is None:
             return
-        if QMessageBox.question(self, "Löschen", "Diese Ausgabe wirklich löschen?") \
-                == QMessageBox.StandardButton.Yes:
+        item = self.ctx.expenses.get(rid)
+        msg = ("Diese wiederkehrende Ausgabe ganz löschen (in allen Monaten)?"
+               if item and item.recurring else "Diese Ausgabe wirklich löschen?")
+        if QMessageBox.question(self, "Löschen", msg) == QMessageBox.StandardButton.Yes:
             self.ctx.expenses.delete(rid)
             self.ctx.notify_changed()
 

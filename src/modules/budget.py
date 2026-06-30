@@ -25,8 +25,10 @@ def compute_overview(
     income = income_repo.total_active()
     fixed_costs = fixed_repo.active_for_month(start, end)
     fixed_total = sum(c.amount_cents for c in fixed_costs)
-    variable = expense_repo.total_for_range(start, end)
-    by_cat = expense_repo.by_category_for_range(start, end)
+    # Month view counts one-off expenses for this month plus every recurring
+    # variable expense that has started by now.
+    variable = expense_repo.total_for_month(year, month)
+    by_cat = expense_repo.by_category_for_month(year, month)
     # Loan instalments are the fixed costs categorised as "Kredit".
     credits_total = sum(c.amount_cents for c in fixed_costs if c.category == "Kredit")
     return BudgetOverview(

@@ -40,6 +40,7 @@ class Database:
     def _initialise(self) -> None:
         with open(schema_path(), "r", encoding="utf-8") as fh:
             self.conn.executescript(fh.read())
+        self._migrate()
         row = self.conn.execute(
             "SELECT version FROM schema_version LIMIT 1"
         ).fetchone()
@@ -50,6 +51,20 @@ class Database:
             )
             self.conn.commit()
         _log.info("Database ready at %s (schema v%s)", self.path, CURRENT_SCHEMA_VERSION)
+
+    def _migrate(self) -> None:
+        """Apply forward-compatible schema tweaks to an existing database.
+
+        ``executescript`` only creates *missing* tables; a column added to an
+        existing table needs an explicit ``ALTER``. Each step is guarded so it is
+        a no-op on a fresh database (where schema.sql already created the column)
+        and never touches existing user data.
+        """
+        if not self._has_column("variable_expenses", "recurring"):
+            self.conn.execute(
+                "ALTER TABLE variable_expenses ADD COLUMN recurring INTEGER NOT NULL DEFAULT 0")
+            self.conn.commit()
+            self._column_cache.pop("variable_expenses", None)
 
     # -- low-level helpers --------------------------------------------------
     def query(self, sql: str, params: Sequence[Any] = ()) -> list[sqlite3.Row]:

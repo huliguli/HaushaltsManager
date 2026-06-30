@@ -17,7 +17,6 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from modules import budget
 from modules.file_handler import excel_io, pdf_import, pdf_report
 from ui import icons
 from ui.import_dialogs import MappingDialog, PdfImportDialog
@@ -193,11 +192,10 @@ class ImportExportView(BaseView):
         if not path:
             return
         try:
-            start, end = budget.month_bounds(today.year, today.month)
             out = pdf_report.generate_monthly_report(
                 path, year=today.year, month=today.month, overview=self.ctx.overview(),
                 fixed_costs=self.ctx.fixed.list(),
-                expenses=self.ctx.expenses.list_for_range(start, end),
+                expenses=self.ctx.expenses.list_for_month(today.year, today.month),
                 credits=self.ctx.credits.list())
             self._export_done(str(out))
         except Exception as exc:  # noqa: BLE001

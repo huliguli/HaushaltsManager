@@ -38,6 +38,8 @@ CREATE TABLE IF NOT EXISTS fixed_costs (
 );
 
 -- --- Variable expenses (dated, categorised, optional receipt) -------------
+-- recurring = 1 marks a monthly-recurring template: it counts in its start
+-- month (its `date`) and in every later month, materialised on the fly.
 CREATE TABLE IF NOT EXISTS variable_expenses (
     id           INTEGER PRIMARY KEY AUTOINCREMENT,
     date         TEXT    NOT NULL,                      -- ISO YYYY-MM-DD
@@ -45,6 +47,7 @@ CREATE TABLE IF NOT EXISTS variable_expenses (
     category     TEXT    NOT NULL DEFAULT 'Sonstiges',
     description  TEXT,
     receipt_path TEXT,                                  -- optional image path
+    recurring    INTEGER NOT NULL DEFAULT 0,            -- 1 = monatlich wiederkehrend
     created_at   TEXT    NOT NULL DEFAULT (datetime('now'))
 );
 
