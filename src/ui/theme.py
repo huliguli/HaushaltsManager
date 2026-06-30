@@ -167,6 +167,12 @@ def on_color(hex_color: str) -> str:
 
 def build_qss(c: dict) -> str:
     """Build the application-wide style sheet from a colour dictionary."""
+    from ui import icons
+    # A chevron for the combo-box drop-down (Qt cannot embed it inline); falls
+    # back to no arrow rule if the image can't be materialised.
+    _arrow = icons.stylesheet_image_path("chevron_down", c["text_muted"], 28)
+    arrow_rule = (f"QComboBox::down-arrow {{ image: url({_arrow}); "
+                  f"width: 13px; height: 13px; }}" if _arrow else "")
     return f"""
 * {{
     font-family: {FONT_STACK};
@@ -256,7 +262,12 @@ QLineEdit, QComboBox, QDateEdit, QSpinBox, QDoubleSpinBox, QTextEdit, QPlainText
 QLineEdit:hover, QComboBox:hover {{ border-color: {c['text_faint']}; }}
 QLineEdit:focus, QComboBox:focus, QDateEdit:focus, QSpinBox:focus,
 QDoubleSpinBox:focus, QTextEdit:focus, QPlainTextEdit:focus {{ border: 1px solid {c['focus']}; }}
-QComboBox::drop-down {{ border: none; width: 22px; }}
+QComboBox::drop-down {{ border: none; width: 24px; }}
+{arrow_rule}
+/* Combo boxes used as table cell-widgets need tight vertical padding and an
+   explicit text colour, otherwise the current item is clipped to nothing in
+   the short table rows. */
+QComboBox#CellCombo {{ padding: 2px 9px; color: {c['text']}; background: {c['surface_2']}; }}
 QComboBox QAbstractItemView {{
     background: {c['surface']}; border: 1px solid {c['border_strong']};
     border-radius: 8px; selection-background-color: {c['primary_soft']};

@@ -71,3 +71,24 @@ def pixmap(name: str, color: str = "#1b2330", size: int = 22) -> QPixmap:
 
 def icon(name: str, color: str = "#1b2330", size: int = 22) -> QIcon:
     return QIcon(pixmap(name, color, size))
+
+
+def stylesheet_image_path(name: str, color: str, size: int = 28) -> str:
+    """Render an icon to a cached PNG and return a forward-slashed absolute path.
+
+    Qt stylesheets cannot embed images inline, so for ``image: url(...)`` we
+    materialise the icon once into the (always-writable) user data dir and reuse
+    it. Returns ``""`` if rendering is not possible (e.g. no QApplication yet),
+    so callers can simply omit the rule.
+    """
+    try:
+        from app_meta import data_dir
+        cache = data_dir() / "iconcache"
+        cache.mkdir(parents=True, exist_ok=True)
+        out = cache / f"{name}_{color.lstrip('#')}_{size}.png"
+        if not out.exists():
+            if not pixmap(name, color, size).save(str(out), "PNG"):
+                return ""
+        return str(out).replace("\\", "/")
+    except Exception:  # noqa: BLE001 - styling must never break startup
+        return ""

@@ -196,7 +196,7 @@ class BankReviewDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle("Kontoauszug prüfen und übernehmen")
         self.setModal(True)
-        self.setMinimumSize(980, 640)
+        self.setMinimumSize(1040, 640)
         self._txs = transactions
         self._colors = colors
         self._checks: list[QCheckBox] = []
@@ -241,7 +241,9 @@ class BankReviewDialog(QDialog):
         self.table.verticalHeader().setVisible(False)
         self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
-        self.table.verticalHeader().setDefaultSectionSize(34)
+        # Taller rows so the category combo cell-widget has room to show its
+        # current text (a cramped row clips it to an empty-looking box).
+        self.table.verticalHeader().setDefaultSectionSize(40)
         for r, t in enumerate(transactions):
             self._build_row(r, t)
         header = self.table.horizontalHeader()
@@ -253,8 +255,8 @@ class BankReviewDialog(QDialog):
         # -> fixed width so the category name is fully readable.
         header.setSectionResizeMode(6, QHeaderView.ResizeMode.Fixed)
         # Wide enough for the longest category name ("Essen Bestellen & Fast
-        # Food") in the combo cell-widget (ResizeToContents cannot measure it).
-        self.table.setColumnWidth(6, 240)
+        # Food") plus the dropdown arrow (ResizeToContents cannot measure it).
+        self.table.setColumnWidth(6, 270)
         root.addWidget(self.table, 1)
 
         buttons = QHBoxLayout()
@@ -302,6 +304,7 @@ class BankReviewDialog(QDialog):
             dot.setStyleSheet(f"color: {self._colors.get(key, self._colors['grey'])}; font-size: 12px;")
             dot.setToolTip(f"Vorschlag: {label_text}")
             combo = QComboBox()
+            combo.setObjectName("CellCombo")
             combo.addItems(EXPENSE_CATEGORIES)
             if t.category in EXPENSE_CATEGORIES:
                 combo.setCurrentText(t.category)
@@ -388,7 +391,8 @@ class ImportRulesDialog(QDialog):
         self.table.setHorizontalHeaderLabels(["Muster", "Kategorie", ""])
         self.table.verticalHeader().setVisible(False)
         self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
-        self.table.verticalHeader().setDefaultSectionSize(34)
+        # Taller rows so the category combo cell-widget shows its text.
+        self.table.verticalHeader().setDefaultSectionSize(40)
         head = self.table.horizontalHeader()
         head.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         head.setSectionResizeMode(1, QHeaderView.ResizeMode.Fixed)
@@ -413,6 +417,7 @@ class ImportRulesDialog(QDialog):
             item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
             self.table.setItem(r, 0, item)
             combo = QComboBox()
+            combo.setObjectName("CellCombo")
             combo.addItems(EXPENSE_CATEGORIES)
             if rule["category"] in EXPENSE_CATEGORIES:
                 combo.setCurrentText(rule["category"])
