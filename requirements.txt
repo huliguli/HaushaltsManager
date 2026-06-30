@@ -16,6 +16,9 @@ openpyxl==3.1.5
 PyMuPDF==1.27.2.3
 reportlab==5.0.0
 
+# --- Bank statement import: safe XML (XXE/entity-expansion guard for CAMT) ---
+defusedxml==0.7.1
+
 # --- Charts ---
 matplotlib==3.11.0
 

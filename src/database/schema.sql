@@ -93,8 +93,42 @@ CREATE TABLE IF NOT EXISTS monthly_summary (
     UNIQUE (year, month)
 );
 
+-- --- Bank-statement import: learned categorisation rules ------------------
+-- pattern = normalised payee/purpose substring; learned = taught by a user
+-- correction (vs. a built-in seed rule, which is not stored here).
+CREATE TABLE IF NOT EXISTS import_rules (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    pattern    TEXT    NOT NULL,
+    category   TEXT    NOT NULL,
+    learned    INTEGER NOT NULL DEFAULT 1,
+    priority   INTEGER NOT NULL DEFAULT 100,
+    created_at TEXT    NOT NULL DEFAULT (datetime('now')),
+    UNIQUE (pattern)
+);
+
+-- --- Bank-statement import: de-dup log (so a re-import skips known rows) ----
+CREATE TABLE IF NOT EXISTS import_log (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    tx_hash      TEXT    NOT NULL,
+    booking_date TEXT,
+    amount_cents INTEGER,
+    imported_at  TEXT    NOT NULL DEFAULT (datetime('now')),
+    UNIQUE (tx_hash)
+);
+
+-- --- Bank-statement import: saved CSV column profiles per bank -------------
+CREATE TABLE IF NOT EXISTS bank_profiles (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    name         TEXT    NOT NULL,
+    mapping_json TEXT    NOT NULL,
+    created_at   TEXT    NOT NULL DEFAULT (datetime('now')),
+    UNIQUE (name)
+);
+
 -- --- Indexes ---------------------------------------------------------------
 CREATE INDEX IF NOT EXISTS idx_var_date     ON variable_expenses(date);
 CREATE INDEX IF NOT EXISTS idx_var_category ON variable_expenses(category);
 CREATE INDEX IF NOT EXISTS idx_fixed_active ON fixed_costs(active);
 CREATE INDEX IF NOT EXISTS idx_credit_status ON credits(status);
+CREATE INDEX IF NOT EXISTS idx_import_log_hash    ON import_log(tx_hash);
+CREATE INDEX IF NOT EXISTS idx_import_rules_pattern ON import_rules(pattern);

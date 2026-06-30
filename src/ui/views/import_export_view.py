@@ -17,8 +17,13 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from modules.bank_import import parsers as bank_parsers
+from modules.bank_import.categorize import Categorizer
+from modules.bank_import.model import normalize, transaction_hash
 from modules.file_handler import excel_io, pdf_import, pdf_report
+from modules.models import IncomeSource, VariableExpense
 from ui import icons
+from ui.bank_import_dialogs import BankCsvMappingDialog, BankReviewDialog
 from ui.import_dialogs import MappingDialog, PdfImportDialog
 from ui.views.base_view import BaseView
 from ui.wizard import run_wizard
@@ -35,7 +40,7 @@ class ImportExportView(BaseView):
         layout.setContentsMargins(30, 26, 30, 24)
         layout.setSpacing(16)
         layout.addWidget(heading("Import / Export"))
-        layout.addWidget(muted("Daten aus Excel oder PDF einlesen und Berichte erzeugen."))
+        layout.addWidget(muted("Kontoauszüge, Excel oder PDF einlesen und Berichte erzeugen."))
 
         cards = QHBoxLayout()
         cards.setSpacing(16)
@@ -52,6 +57,11 @@ class ImportExportView(BaseView):
         layout.setContentsMargins(22, 20, 22, 20)
         layout.setSpacing(14)
         layout.addWidget(self._card_title("download", "Importieren"))
+        layout.addWidget(self._action(
+            "Kontoauszug importieren",
+            "CAMT, MT940, CSV oder PDF – Buchungen werden erkannt und automatisch "
+            "Kategorien vorgeschlagen. Alles bleibt lokal auf diesem Gerät.",
+            "Auszug wählen…", self._import_bank_statement))
         layout.addWidget(self._action(
             "Excel-Datei importieren",
             "Bankexporte (DKB, Sparkasse, N26 …) mit automatischer Spaltenerkennung.",
@@ -169,6 +179,84 @@ class ImportExportView(BaseView):
 
     def _run_wizard(self) -> None:
         run_wizard(self.ctx, self)
+
+    # -- bank statement import ----------------------------------------------
+    def _import_bank_statement(self) -> None:
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Kontoauszug wählen", "",
+            "Kontoauszüge (*.xml *.camt *.sta *.mt940 *.txt *.csv *.pdf);;Alle Dateien (*.*)")
+        if not path:
+            return
+        try:
+            transactions = self._parse_statement(path)
+        except bank_parsers.BankImportError as exc:
+            QMessageBox.warning(self, "Import", str(exc))
+            return
+        except Exception as exc:  # noqa: BLE001 - a bad file must never crash the app
+            QMessageBox.critical(self, "Import fehlgeschlagen",
+                                 f"Die Datei konnte nicht verarbeitet werden.\n\n{exc}")
+            return
+        if transactions is None:  # user cancelled the CSV column mapping
+            return
+
+        # Suggest categories from learned + seed rules, then drop already-imported.
+        Categorizer(self.ctx.import_rules.rules()).categorize_all(transactions)
+        hashes = [transaction_hash(t) for t in transactions]
+        known = self.ctx.import_log.known(hashes)
+        new_txs = [t for t, h in zip(transactions, hashes) if h not in known]
+        skipped = len(transactions) - len(new_txs)
+        if not new_txs:
+            QMessageBox.information(
+                self, "Import",
+                f"Alle {len(transactions)} Buchungen wurden bereits importiert.")
+            return
+
+        dlg = BankReviewDialog(new_txs, skipped, self.ctx.colors, self)
+        if dlg.exec():
+            self._commit_bank(dlg.accepted_transactions(), skipped)
+
+    def _parse_statement(self, path: str):
+        """Detect format and parse; returns transactions, or None if CSV mapping
+        was cancelled. Raises BankImportError with a user message on bad input."""
+        fmt = bank_parsers.detect_format(path)
+        if fmt == "camt":
+            return bank_parsers.parse_camt(path)
+        if fmt == "mt940":
+            return bank_parsers.parse_mt940(path)
+        if fmt == "pdf":
+            return bank_parsers.parse_pdf(path)
+        headers, rows = bank_parsers.read_csv_rows(path)
+        guess = bank_parsers.guess_csv_mapping(headers)
+        dlg = BankCsvMappingDialog(headers, rows, guess, self.ctx.bank_profiles, self)
+        if not dlg.exec():
+            return None
+        return bank_parsers.parse_csv(rows, dlg.mapping())
+
+    def _commit_bank(self, transactions, skipped: int) -> None:
+        """Write confirmed transactions, learn rules and log them for de-dup."""
+        today_iso = dates.to_iso(dates.today())
+        n_exp = n_inc = 0
+        for t in transactions:
+            if t.is_income:
+                self.ctx.income.add(IncomeSource(
+                    name=(t.payee or t.purpose or "Einnahme")[:80],
+                    amount_cents=t.abs_cents, income_type="sonstiges"))
+                n_inc += 1
+            else:
+                self.ctx.expenses.add(VariableExpense(
+                    date=t.booking_date or today_iso, amount_cents=t.abs_cents,
+                    category=t.category or "Sonstiges",
+                    description=(t.payee or t.purpose or "")[:120]))
+                n_exp += 1
+                if t.payee:  # learn: this payee -> this category for next time
+                    self.ctx.import_rules.upsert(
+                        normalize(t.payee), t.category or "Sonstiges", learned=True)
+            self.ctx.import_log.add(transaction_hash(t), t.booking_date, t.amount_cents)
+        self.ctx.notify_changed()
+        QMessageBox.information(
+            self, "Import abgeschlossen",
+            f"{n_exp} Ausgaben und {n_inc} Einnahmen übernommen."
+            + (f"\n{skipped} bereits vorhanden (übersprungen)." if skipped else ""))
 
     # -- export handlers ----------------------------------------------------
     def _export_excel(self) -> None:

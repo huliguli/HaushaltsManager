@@ -38,6 +38,7 @@ class EinstellungenView(BaseView):
 
         layout.addWidget(self._design_card())
         layout.addWidget(self._update_card())
+        layout.addWidget(self._import_card())
         layout.addWidget(self._data_card())
         layout.addWidget(self._about_card())
         layout.addStretch(1)
@@ -167,6 +168,25 @@ class EinstellungenView(BaseView):
     def background_threads(self) -> list:
         """Running update threads owned by this view (for shutdown cleanup)."""
         return [self._checker, self._installer]
+
+    # -- bank import management ---------------------------------------------
+    def _import_card(self) -> QFrame:
+        card, layout = self._card("Kontoauszug-Import")
+        self._add_action_row(
+            layout, "Kategorisierungs-Regeln verwalten (Empfänger → Kategorie)",
+            "Regeln öffnen", self._open_rules, "Ghost")
+        self._add_action_row(
+            layout, "Gespeicherte Bank-Profile (CSV-Spalten) verwalten",
+            "Profile öffnen", self._open_profiles, "Ghost")
+        return card
+
+    def _open_rules(self) -> None:
+        from ui.bank_import_dialogs import ImportRulesDialog
+        ImportRulesDialog(self.ctx.import_rules, self).exec()
+
+    def _open_profiles(self) -> None:
+        from ui.bank_import_dialogs import BankProfilesDialog
+        BankProfilesDialog(self.ctx.bank_profiles, self).exec()
 
     # -- data ---------------------------------------------------------------
     def _data_card(self) -> QFrame:

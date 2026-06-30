@@ -18,8 +18,11 @@ from modules import budget
 from modules.config import Config
 from modules.db_handler.database import Database
 from modules.db_handler.repositories import (
+    BankProfileRepository,
     CreditRepository,
     FixedCostRepository,
+    ImportLogRepository,
+    ImportRuleRepository,
     IncomeRepository,
     MonthlySummaryRepository,
     SettingsRepository,
@@ -46,6 +49,9 @@ class AppContext(QObject):
         self.credits = CreditRepository(db)
         self.settings = SettingsRepository(db)
         self.summaries = MonthlySummaryRepository(db)
+        self.import_rules = ImportRuleRepository(db)
+        self.import_log = ImportLogRepository(db)
+        self.bank_profiles = BankProfileRepository(db)
 
     # -- theme --------------------------------------------------------------
     @property

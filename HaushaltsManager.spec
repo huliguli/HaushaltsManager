@@ -30,6 +30,7 @@ a = Analysis(
     hiddenimports=[
         'matplotlib.backends.backend_qtagg',
         'matplotlib.backends.backend_agg',
+        'defusedxml.ElementTree',  # safe CAMT/XML parsing for the bank import
     ],
     hookspath=[],
     runtime_hooks=[],

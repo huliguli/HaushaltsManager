@@ -237,6 +237,94 @@ class CreditRepository:
         self.db.delete("credits", row_id)
 
 
+class ImportRuleRepository:
+    """Learned categorisation rules (payee/purpose pattern -> category)."""
+
+    def __init__(self, db: Database) -> None:
+        self.db = db
+
+    def rules(self) -> list[tuple[str, str]]:
+        """(pattern, category), highest priority first — for the categoriser."""
+        rows = self.db.query(
+            "SELECT pattern, category FROM import_rules "
+            "ORDER BY learned DESC, priority ASC, id ASC")
+        return [(r["pattern"], r["category"]) for r in rows]
+
+    def list_full(self) -> list[dict]:
+        rows = self.db.query(
+            "SELECT id, pattern, category, learned FROM import_rules "
+            "ORDER BY category, pattern")
+        return [dict(r) for r in rows]
+
+    def upsert(self, pattern: str, category: str, learned: bool = True) -> None:
+        pattern = (pattern or "").strip()
+        if not pattern:
+            return
+        self.db.execute(
+            "INSERT INTO import_rules (pattern, category, learned) VALUES (?, ?, ?) "
+            "ON CONFLICT(pattern) DO UPDATE SET category = excluded.category, "
+            "learned = excluded.learned",
+            (pattern, category, 1 if learned else 0))
+
+    def delete(self, rule_id: int) -> None:
+        self.db.delete("import_rules", rule_id)
+
+
+class ImportLogRepository:
+    """De-dup log: which bank transactions were already imported."""
+
+    def __init__(self, db: Database) -> None:
+        self.db = db
+
+    def known(self, hashes: list[str]) -> set[str]:
+        """Return the subset of ``hashes`` already present (chunked IN query)."""
+        found: set[str] = set()
+        for i in range(0, len(hashes), 400):
+            chunk = hashes[i:i + 400]
+            placeholders = ", ".join("?" for _ in chunk)
+            rows = self.db.query(
+                f"SELECT tx_hash FROM import_log WHERE tx_hash IN ({placeholders})", chunk)
+            found.update(r["tx_hash"] for r in rows)
+        return found
+
+    def add(self, tx_hash: str, booking_date: str, amount_cents: int) -> None:
+        self.db.execute(
+            "INSERT OR IGNORE INTO import_log (tx_hash, booking_date, amount_cents) "
+            "VALUES (?, ?, ?)", (tx_hash, booking_date, amount_cents))
+
+
+class BankProfileRepository:
+    """Saved CSV column mappings, keyed by a user-chosen profile name."""
+
+    def __init__(self, db: Database) -> None:
+        self.db = db
+
+    def list_names(self) -> list[str]:
+        return [r["name"] for r in self.db.query(
+            "SELECT name FROM bank_profiles ORDER BY name")]
+
+    def get(self, name: str) -> str | None:
+        row = self.db.query_one(
+            "SELECT mapping_json FROM bank_profiles WHERE name = ?", (name,))
+        return row["mapping_json"] if row else None
+
+    def list_full(self) -> list[dict]:
+        return [dict(r) for r in self.db.query(
+            "SELECT id, name FROM bank_profiles ORDER BY name")]
+
+    def upsert(self, name: str, mapping_json: str) -> None:
+        name = (name or "").strip()
+        if not name:
+            return
+        self.db.execute(
+            "INSERT INTO bank_profiles (name, mapping_json) VALUES (?, ?) "
+            "ON CONFLICT(name) DO UPDATE SET mapping_json = excluded.mapping_json",
+            (name, mapping_json))
+
+    def delete(self, profile_id: int) -> None:
+        self.db.delete("bank_profiles", profile_id)
+
+
 class SettingsRepository:
     def __init__(self, db: Database) -> None:
         self.db = db
