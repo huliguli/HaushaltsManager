@@ -356,6 +356,12 @@ _PDF_LINE_AMOUNT = re.compile(r"^-?\d{1,3}(?:\.\d{3})*,\d{2}$")
 _PDF_NON_TX = re.compile(
     r"(?i)\b(saldo|kontostand|freistellungsauftrag|sparer-?pauschbetrag|"
     r"übertrag|uebertrag|zwischensumme|gesamtsumme|summe\b)")
+# Page-footer/header lines that can follow the last posting on a page; they must
+# not bleed into a transaction's purpose text.
+_PDF_FOOTER = re.compile(
+    r"(?i)^(girokonto|kontoauszug|auszugsnummer|bic |iban |blatt|seite|"
+    r"uebertrag|übertrag|alter saldo|neuer saldo|ing[- ]?diba|herrn|frau|"
+    r"datum$|\d{2}gkka)")
 
 
 def parse_pdf(path: str | Path) -> list[BankTransaction]:
@@ -425,7 +431,8 @@ def _parse_pdf_tabular(lines: list[str]) -> list[BankTransaction]:
         k = i + 2
         while (k < n and len(purpose) < 6
                and not _PDF_LINE_DATE.match(lines[k])
-               and not _PDF_LINE_AMOUNT.match(lines[k])):
+               and not _PDF_LINE_AMOUNT.match(lines[k])
+               and not _PDF_FOOTER.match(lines[k])):
             purpose.append(lines[k])
             k += 1
         out.append(BankTransaction(
