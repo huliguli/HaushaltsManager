@@ -58,7 +58,9 @@ class _BaseDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle(title)
         self.setModal(True)
-        self.setMinimumWidth(440)
+        # Wide enough that the longest expense category ("Essen Bestellen &
+        # Fast Food") shows fully in the two-column form's category combo.
+        self.setMinimumWidth(520)
 
         root = QVBoxLayout(self)
         root.setContentsMargins(24, 22, 24, 20)

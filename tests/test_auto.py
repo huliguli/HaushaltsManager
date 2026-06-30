@@ -68,3 +68,26 @@ def test_feasibility_knapp_and_boundaries():
     assert auto._feasibility(100_001, 100_000) == "riskant"  # just over budget
     assert auto._feasibility(0, 0) == "gut"                 # no budget, no cost
     assert auto._feasibility(5, 0) == "riskant"             # no budget, some cost
+
+
+def test_kfz_steuer_combustion_vs_electric_contrast():
+    # Pin the differentiator of the is_electric branch as a contrast: a
+    # combustion car pays 1500 cents Kfz-Steuer, an electric one pays 0. A
+    # regression zeroing the combustion rate would otherwise slip through.
+    combustion = auto.compute(price_cents=4_000_000, term_months=48,
+                              annual_rate_pct=3.0, extras=AutoExtras(is_electric=False))
+    electric = auto.compute(price_cents=4_000_000, term_months=48,
+                            annual_rate_pct=3.0, extras=AutoExtras(is_electric=True))
+    assert combustion.extras_breakdown["Kfz-Steuer"] == 1_500
+    assert electric.extras_breakdown["Kfz-Steuer"] == 0
+
+
+def test_good_case_financing_amounts():
+    # Anchor the annuity instalment in the comfortable case (no extras), which
+    # the badge test only checks by label.
+    good = auto.compute(price_cents=1_000_000, term_months=60, annual_rate_pct=2.0,
+                        extras=AutoExtras(False, False, False, False, False),
+                        monthly_disposable_cents=200_000)
+    assert good.monthly_financing_cents == 17_528
+    assert good.monthly_total_cents == 17_528          # no extras
+    assert good.remaining_after_auto_cents == 182_472

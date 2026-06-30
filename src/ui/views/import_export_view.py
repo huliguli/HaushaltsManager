@@ -17,6 +17,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from modules import dates
 from modules.bank_import import parsers as bank_parsers
 from modules.bank_import.categorize import Categorizer
 from modules.bank_import.model import normalize, transaction_hash
@@ -243,10 +244,19 @@ class ImportExportView(BaseView):
                     amount_cents=t.abs_cents, income_type="sonstiges"))
                 n_inc += 1
             else:
+                # Imported transactions are one-off, dated to their actual
+                # booking month (from the statement) — NOT to "this month".
+                # recurring=False is set explicitly and on purpose: an imported
+                # item must never be carried into the next month's view, never
+                # become a fixed cost and never feed the fixed-cost timeline.
+                # Only user-defined fixed costs (rent, Kostgeld, subscriptions)
+                # recur; a merchant seen monthly is still booked one month at a
+                # time. See _recurring_occurrences / *_for_range (recurring=0).
                 self.ctx.expenses.add(VariableExpense(
                     date=t.booking_date or today_iso, amount_cents=t.abs_cents,
                     category=t.category or "Sonstiges",
-                    description=(t.payee or t.purpose or "")[:120]))
+                    description=(t.payee or t.purpose or "")[:120],
+                    recurring=False))
                 n_exp += 1
                 if t.payee:  # learn: this payee -> this category for next time
                     self.ctx.import_rules.upsert(

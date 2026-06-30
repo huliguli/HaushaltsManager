@@ -18,9 +18,36 @@ FIXED_CATEGORIES = [
     "Wohnen", "Auto", "Kommunikation", "Kredit",
     "Freizeit", "Persönlich", "Versicherung", "Sonstiges",
 ]
+# Expense taxonomy (schema v2). Order = dropdown display order, everyday
+# spending first, the "Sonstiges" fallback last. These strings are the single
+# source of truth: the bank-import categoriser (modules.bank_import.seed_rules)
+# may only emit names from this list, and the v2 DB migration maps the old short
+# names onto them — a guard test asserts both invariants.
 EXPENSE_CATEGORIES = [
-    "Lebensmittel", "Tanken", "Freizeit", "Kleidung",
-    "Drogerie", "Gesundheit", "Haushalt", "Sonstiges",
+    "Lebensmittel",
+    "Essen Bestellen & Fast Food",
+    "Restaurant & Café",
+    "Auto & Tanken",
+    "Mobilität & ÖPNV",
+    "Energie & Nebenkosten",
+    "Telekommunikation",
+    "Streaming & Abos",
+    "Versicherung",
+    "Finanzen & Gebühren",
+    "Drogerie & Körperpflege",
+    "Gesundheit & Apotheke",
+    "Kleidung & Mode",
+    "Elektronik & Technik",
+    "Haushalt & Möbel",
+    "Freizeit & Unterhaltung",
+    "Reisen & Urlaub",
+    "Bildung",
+    "Kinder & Familie",
+    "Spenden",
+    "Shopping & Online",
+    "Wohnen & Miete",
+    "Bargeld",
+    "Sonstiges",
 ]
 CREDIT_CATEGORIES = ["Auto", "Haus", "Divers", "Persönlich"]
 INCOME_TYPES = ["minijob", "teilzeit", "vollzeit", "sonstiges"]

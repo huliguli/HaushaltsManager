@@ -21,6 +21,7 @@ import sys
 
 from app_meta import data_dir, is_frozen, resource_path
 from modules import dates
+from modules.db_handler.database import _CATEGORY_MIGRATION_V2
 from modules.db_handler.repositories import (
     CreditRepository,
     FixedCostRepository,
@@ -126,12 +127,17 @@ def load_seed(db, path: Path) -> dict:
 
     # Variable estimates become example expenses dated on the 1st of this month,
     # so the dashboard is meaningful immediately. The user can edit or delete them.
+    # Seeding runs after the DB migration, so map any legacy expense-category name
+    # from an older seed file onto the current v2 taxonomy (defensive: a fresh
+    # install must not end up with orphaned category names).
     first_of_month = dates.today().replace(day=1)
     for row in data.get("variable_estimate", []):
+        raw_cat = row.get("category", "Sonstiges")
+        category = _CATEGORY_MIGRATION_V2.get(raw_cat, raw_cat)
         expense_repo.add(VariableExpense(
             date=dates.to_iso(first_of_month),
             amount_cents=parse_eur(row["amount"]),
-            category=row.get("category", "Sonstiges"),
+            category=category,
             description=row.get("name", "Schätzung"),
         ))
         counts["expenses"] += 1

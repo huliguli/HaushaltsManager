@@ -10,7 +10,7 @@ def _sample():
     overview = BudgetOverview(
         income_cents=230_000, fixed_cents=95_000, variable_cents=68_000,
         credits_cents=7_500,
-        expenses_by_category={"Lebensmittel": 30_000, "Tanken": 20_000},
+        expenses_by_category={"Lebensmittel": 30_000, "Auto & Tanken": 20_000},
     )
     fixed = [
         FixedCost("Miete", 50_000, "Wohnen"),
@@ -18,7 +18,7 @@ def _sample():
     ]
     expenses = [
         VariableExpense("2026-06-05", 3_000, "Lebensmittel", "Supermarkt"),
-        VariableExpense("2026-06-10", 5_000, "Tanken", "=cmd|calc"),  # injection attempt
+        VariableExpense("2026-06-10", 5_000, "Auto & Tanken", "=cmd|calc"),  # injection attempt
     ]
     credits = [Credit("Autokredit", total_cents=1_500_000, monthly_cents=25_000,
                       term_months=60, interest_rate=4.0, category="Auto")]
@@ -35,10 +35,12 @@ def test_excel_export_and_reload(tmp_path):
     wb = load_workbook(out)
     assert {"Übersicht", "Fixkosten-Timeline", "Ausgaben", "Kredite",
             "Tilgungspläne"} <= set(wb.sheetnames)
-    # The formula-injection attempt must be neutralised (no leading '=').
+    # The formula-injection attempt must be neutralised AND preserved: _safe_text
+    # prefixes a leading apostrophe so Excel treats it as text, not a formula.
     ausgaben = wb["Ausgaben"]
     texts = [ausgaben.cell(row=r, column=3).value for r in range(2, ausgaben.max_row + 1)]
-    assert all(not (t or "").startswith("=") for t in texts)
+    assert "'=cmd|calc" in texts                       # neutralised, content kept
+    assert all(not (t or "").startswith("=") for t in texts)  # nothing stays a formula
 
 
 def test_excel_import_mapping_and_rows(tmp_path):
@@ -79,7 +81,10 @@ def test_rows_to_expenses_skips_and_fallbacks():
     assert len(items) == 3
     assert items[0].amount_cents == 3_490
     assert items[-1].amount_cents == 5_500
-    assert all(it.date for it in items)  # the bad-date row got a fallback date
+    # The bad-date row (12,00 € -> 1200 cents) falls back to today's ISO date.
+    from modules import dates
+    bad_date_item = next(it for it in items if it.amount_cents == 1_200)
+    assert bad_date_item.date == dates.to_iso(dates.today())
 
 
 def test_read_preview_empty_and_header_only(tmp_path):
@@ -110,7 +115,10 @@ def test_pdf_report_and_amount_extraction(tmp_path):
     head = out.read_bytes()[:5]
     assert head.startswith(b"%PDF")
 
-    # The generated report contains euro amounts; the extractor should find some.
+    # The generated report contains euro amounts; the extractor should find the
+    # income figure (2.300,00 € -> 230000 cents) among them as integer cents.
     amounts = pdf_import.extract_amounts(out)
     assert len(amounts) > 0
-    assert all("cents" in a for a in amounts)
+    cents_values = [a["cents"] for a in amounts]
+    assert 230_000 in cents_values
+    assert all(isinstance(a["cents"], int) for a in amounts)

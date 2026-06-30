@@ -12,7 +12,10 @@ def test_basic_mortgage():
         term_years=30,
     )
     assert res.loan_cents == 24_000_000
-    # Residual after 10 years is below the original loan but above zero.
+    # Residual after 10 years: exact figure (== balance at month 120) as a
+    # regression anchor, plus the plausibility range.
+    assert res.residual_after_fixed_cents == 18_582_415
+    assert res.residual_after_fixed_cents == res.schedule[119].balance_cents
     assert 0 < res.residual_after_fixed_cents < res.loan_cents
     # Full term amortises to zero.
     assert res.schedule[-1].balance_cents == 0

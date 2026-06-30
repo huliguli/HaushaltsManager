@@ -42,10 +42,10 @@ def test_months_between():
 def test_months_remaining():
     frm = date(2026, 6, 29)
     assert dates.months_remaining(None, frm) is None
-    # December 2026 end -> still several months left, positive
-    assert dates.months_remaining("14.12.2026", frm) > 0
-    # Past date -> negative (overdue)
-    assert dates.months_remaining("01.01.2020", frm) < 0
+    # December 2026 end -> exactly 6 months left (deterministic, not just > 0).
+    assert dates.months_remaining("14.12.2026", frm) == 6
+    # Past date -> exact overdue distance (deterministic, not just < 0).
+    assert dates.months_remaining("01.01.2020", frm) == -78
 
 
 def test_format_months_remaining():

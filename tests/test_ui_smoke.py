@@ -27,7 +27,7 @@ def test_mainwindow_and_all_views_construct(tmp_path, monkeypatch):
     from modules.db_handler.database import Database
     from ui import theme
     from ui.app_context import AppContext
-    from ui.main_window import MainWindow
+    from ui.main_window import _NAV, MainWindow
 
     app = QApplication.instance() or QApplication([])
     db = Database(tmp_path / "smoke.db")
@@ -36,7 +36,8 @@ def test_mainwindow_and_all_views_construct(tmp_path, monkeypatch):
 
     window = MainWindow(ctx)
     # Visiting each view runs its refresh()/build path (incl. the donut chart).
-    for index in range(6):
+    # Iterate the real navigation length so a future 7th view is covered too.
+    for index in range(len(_NAV)):
         window._select(index)
     # Toggling the theme rebuilds the QSS and re-tints/refreshes every view.
     ctx.set_theme("dark")

@@ -17,7 +17,24 @@ from modules.logging_setup import get_logger
 
 _log = get_logger("db")
 
-CURRENT_SCHEMA_VERSION = 1
+CURRENT_SCHEMA_VERSION = 2
+
+# Schema v2 (v1.6.0): the expense taxonomy was refined into finer, better-named
+# categories. Legacy rows still carry the old short names, so map each old name
+# to its closest new bucket — a 1:1 rename, so no existing transaction or learned
+# rule is ever orphaned. "Lebensmittel" and "Sonstiges" keep their names and need
+# no entry. Applied to variable_expenses.category and import_rules.category.
+# The new names here MUST byte-match modules.models.EXPENSE_CATEGORIES (a guard
+# test asserts this). Fixed-cost categories are a separate vocabulary and are
+# intentionally left untouched.
+_CATEGORY_MIGRATION_V2 = {
+    "Tanken": "Auto & Tanken",
+    "Freizeit": "Freizeit & Unterhaltung",
+    "Kleidung": "Kleidung & Mode",
+    "Drogerie": "Drogerie & Körperpflege",
+    "Gesundheit": "Gesundheit & Apotheke",
+    "Haushalt": "Haushalt & Möbel",
+}
 
 
 class Database:
@@ -65,6 +82,30 @@ class Database:
                 "ALTER TABLE variable_expenses ADD COLUMN recurring INTEGER NOT NULL DEFAULT 0")
             self.conn.commit()
             self._column_cache.pop("variable_expenses", None)
+        self._migrate_expense_categories_v2()
+
+    def _migrate_expense_categories_v2(self) -> None:
+        """Rename legacy expense categories to the v2 taxonomy (run once).
+
+        Guarded by the stored schema version so it runs exactly once on an
+        existing database and is a pure no-op afterwards and on a fresh DB
+        (which has no rows to rename). Each UPDATE is parameterised and only
+        touches the precise old name, so it cannot corrupt unrelated data.
+        """
+        row = self.conn.execute("SELECT version FROM schema_version LIMIT 1").fetchone()
+        stored = row["version"] if row else 0
+        if stored >= 2:
+            return
+        for old, new in _CATEGORY_MIGRATION_V2.items():
+            self.conn.execute(
+                "UPDATE variable_expenses SET category = ? WHERE category = ?", (new, old))
+            self.conn.execute(
+                "UPDATE import_rules SET category = ? WHERE category = ?", (new, old))
+        # Bump the existing version row; a fresh DB has none yet and gets the
+        # current version inserted by _initialise right after this returns.
+        if row is not None:
+            self.conn.execute("UPDATE schema_version SET version = 2")
+        self.conn.commit()
 
     # -- low-level helpers --------------------------------------------------
     def query(self, sql: str, params: Sequence[Any] = ()) -> list[sqlite3.Row]:

@@ -22,8 +22,8 @@
   ],
   "variable_estimate": [
     { "name": "Lebensmittel & Drogerie", "amount": "280,00", "category": "Lebensmittel" },
-    { "name": "Tanken", "amount": "180,00", "category": "Tanken" },
-    { "name": "Freizeit", "amount": "90,00", "category": "Freizeit" },
-    { "name": "Kleidung & Diverses", "amount": "70,00", "category": "Kleidung" }
+    { "name": "Tanken", "amount": "180,00", "category": "Auto & Tanken" },
+    { "name": "Freizeit", "amount": "90,00", "category": "Freizeit & Unterhaltung" },
+    { "name": "Kleidung & Diverses", "amount": "70,00", "category": "Kleidung & Mode" }
   ]
 }

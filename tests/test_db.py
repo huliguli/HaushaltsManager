@@ -52,14 +52,14 @@ def test_variable_aggregates(tmp_path):
     db = _db(tmp_path)
     repo = VariableExpenseRepository(db)
     repo.add(VariableExpense("2026-06-05", 3_000, "Lebensmittel"))
-    repo.add(VariableExpense("2026-06-10", 5_000, "Tanken"))
+    repo.add(VariableExpense("2026-06-10", 5_000, "Auto & Tanken"))
     repo.add(VariableExpense("2026-06-15", 2_000, "Lebensmittel"))
-    repo.add(VariableExpense("2026-07-01", 9_900, "Freizeit"))  # other month
+    repo.add(VariableExpense("2026-07-01", 9_900, "Freizeit & Unterhaltung"))  # other month
 
     assert repo.total_for_range("2026-06-01", "2026-06-30") == 10_000
     by_cat = repo.by_category_for_range("2026-06-01", "2026-06-30")
     assert by_cat["Lebensmittel"] == 5_000
-    assert by_cat["Tanken"] == 5_000
+    assert by_cat["Auto & Tanken"] == 5_000
     db.close()
 
 
@@ -67,7 +67,7 @@ def test_recurring_expense_appears_every_month(tmp_path):
     db = _db(tmp_path)
     repo = VariableExpenseRepository(db)
     repo.add(VariableExpense("2026-06-05", 3_000, "Lebensmittel", "Edeka"))
-    repo.add(VariableExpense("2026-06-15", 5_000, "Freizeit", "Abo", recurring=True))
+    repo.add(VariableExpense("2026-06-15", 5_000, "Freizeit & Unterhaltung", "Abo", recurring=True))
 
     # June: one-off + recurring.
     assert repo.total_for_month(2026, 6) == 8_000
@@ -87,10 +87,10 @@ def test_recurring_expense_appears_every_month(tmp_path):
 def test_recurring_by_category_and_day_clamp(tmp_path):
     db = _db(tmp_path)
     repo = VariableExpenseRepository(db)
-    repo.add(VariableExpense("2026-01-31", 2_000, "Haushalt", "Putzmittel", recurring=True))
+    repo.add(VariableExpense("2026-01-31", 2_000, "Haushalt & Möbel", "Putzmittel", recurring=True))
     feb = repo.list_for_month(2026, 2)               # 2026 February has 28 days
     assert feb[0].date == "2026-02-28"               # day clamped to month length
-    assert repo.by_category_for_month(2026, 2)["Haushalt"] == 2_000
+    assert repo.by_category_for_month(2026, 2)["Haushalt & Möbel"] == 2_000
     db.close()
 
 
@@ -100,7 +100,7 @@ def test_recurring_excluded_from_raw_range(tmp_path):
     db = _db(tmp_path)
     repo = VariableExpenseRepository(db)
     repo.add(VariableExpense("2026-06-05", 3_000, "Lebensmittel"))
-    repo.add(VariableExpense("2026-06-15", 5_000, "Freizeit", recurring=True))
+    repo.add(VariableExpense("2026-06-15", 5_000, "Freizeit & Unterhaltung", recurring=True))
     assert repo.total_for_range("2026-06-01", "2026-06-30") == 3_000
     db.close()
 
@@ -141,4 +141,61 @@ def test_credit_and_settings(tmp_path):
     settings.set("theme", "light")          # upsert
     assert settings.get("theme") == "light"
     assert settings.get("missing", "fallback") == "fallback"
+    db.close()
+
+
+def test_migration_renames_expense_categories_v2(tmp_path):
+    # A pre-v2 database (schema_version = 1) carries the old short category
+    # names; opening it must rename them to the v2 taxonomy in BOTH
+    # variable_expenses and import_rules, leave unrelated rows alone, lose no
+    # data, and bump the schema version to 2.
+    path = tmp_path / "v1.db"
+    db = Database(path)
+    # Roll the version back and plant legacy-named rows to simulate v1.
+    db.conn.execute("UPDATE schema_version SET version = 1")
+    db.conn.execute("INSERT INTO variable_expenses (date, amount_cents, category) "
+                    "VALUES ('2026-05-10', 1234, 'Tanken')")
+    db.conn.execute("INSERT INTO variable_expenses (date, amount_cents, category) "
+                    "VALUES ('2026-05-11', 999, 'Lebensmittel')")
+    db.conn.execute("INSERT INTO import_rules (pattern, category, learned) "
+                    "VALUES ('alte tanke', 'Tanken', 1)")
+    db.conn.commit()
+    db.close()
+
+    db2 = Database(path)  # reopen -> migration fires
+    cats = [r["category"] for r in db2.query(
+        "SELECT category FROM variable_expenses ORDER BY id")]
+    rule_cat = db2.query_one(
+        "SELECT category FROM import_rules WHERE pattern = 'alte tanke'")["category"]
+    version = db2.query_one("SELECT version FROM schema_version LIMIT 1")["version"]
+    assert cats == ["Auto & Tanken", "Lebensmittel"]   # renamed + unrelated kept
+    assert rule_cat == "Auto & Tanken"                 # learned rule renamed too
+    assert len(cats) == 2                              # no data lost
+    assert version == 2
+    db2.close()
+
+
+def test_migration_targets_and_seed_rules_in_taxonomy():
+    # Single source of truth: every v2 migration target and every category the
+    # categoriser can emit must exist in EXPENSE_CATEGORIES.
+    from modules.bank_import.seed_rules import SEED_RULES
+    from modules.db_handler.database import _CATEGORY_MIGRATION_V2
+    from modules.models import EXPENSE_CATEGORIES
+
+    valid = set(EXPENSE_CATEGORIES)
+    assert all(new in valid for new in _CATEGORY_MIGRATION_V2.values())
+    assert all(cat in valid for _pattern, cat in SEED_RULES)
+
+
+def test_imported_posting_single_month_no_carryover(tmp_path):
+    # A6: an imported bank posting is one-off (recurring=False); it shows in its
+    # booking month only and is NEVER carried into a later month, while a real
+    # recurring template would be. Guards against import postings being
+    # materialised every month (double counting).
+    db = _db(tmp_path)
+    repo = VariableExpenseRepository(db)
+    repo.add(VariableExpense("2026-06-15", 3_490, "Lebensmittel", "REWE", recurring=False))
+    assert len(repo.list_for_month(2026, 6)) == 1     # present in its month
+    assert repo.list_for_month(2026, 7) == []         # NOT carried into July
+    assert repo.total_for_month(2026, 7) == 0
     db.close()

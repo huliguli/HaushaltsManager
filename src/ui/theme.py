@@ -59,7 +59,13 @@ LIGHT = {
     "grey": "#566173",
     "grey_soft": "#eef1f6",
     # Chart slice palette (cohesive, AA-distinct)
-    "chart": ["#2f6cdf", "#1a9d5a", "#c47711", "#d8453b", "#7c5cff", "#0ea5b7", "#e0699a", "#7a8699"],
+    # Cyclic donut/legend palette. Widened to 14 well-separated hues so a
+    # month with many of the finer expense categories still gets distinct
+    # slices; the legend additionally shows name + % so colour is never the
+    # sole differentiator (WCAG 1.4.1).
+    "chart": ["#2f6cdf", "#1a9d5a", "#c47711", "#d8453b", "#7c5cff", "#0ea5b7",
+              "#e0699a", "#7a8699", "#0f8a6e", "#9a8410", "#3f4fb0", "#b5409a",
+              "#8a5a2b", "#5d9e2f"],
 }
 
 DARK = {
@@ -100,7 +106,11 @@ DARK = {
     "blue_soft": "#17233b",
     "grey": "#8b98af",            # lightened so grey pill text clears 4.5:1 on grey_soft
     "grey_soft": "#222d40",
-    "chart": ["#5088f5", "#34c277", "#e0a23c", "#ec5f55", "#9d83ff", "#2bc2d4", "#f07cab", "#74819a"],
+    # Cyclic donut/legend palette (dark theme) — same 14-hue spread, brighter
+    # variants so each slice reads on the dark card surface.
+    "chart": ["#5088f5", "#34c277", "#e0a23c", "#ec5f55", "#9d83ff", "#2bc2d4",
+              "#f07cab", "#74819a", "#2bb58f", "#cbb43e", "#6f7ee0", "#d765bd",
+              "#bd8a5a", "#86c450"],
 }
 
 # Map a traffic-light key to its (foreground, soft-background) token names.

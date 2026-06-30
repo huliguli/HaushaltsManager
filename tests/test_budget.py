@@ -33,7 +33,7 @@ def test_compute_overview_splits_credits_and_month(tmp_path):
     fixed.add(FixedCost("Miete", 80_000, "Wohnen"))
     fixed.add(FixedCost("Autokredit", 25_000, "Kredit"))
     expenses.add(VariableExpense("2026-06-05", 3_000, "Lebensmittel"))
-    expenses.add(VariableExpense("2026-07-01", 9_900, "Freizeit"))  # other month
+    expenses.add(VariableExpense("2026-07-01", 9_900, "Freizeit & Unterhaltung"))  # other month
 
     ov = budget.compute_overview(income, fixed, expenses, 2026, 6)
     assert ov.income_cents == 200_000        # inactive income excluded
@@ -41,4 +41,18 @@ def test_compute_overview_splits_credits_and_month(tmp_path):
     assert ov.credits_cents == 25_000        # only the "Kredit"-category fixed cost
     assert ov.variable_cents == 3_000        # July expense excluded
     assert ov.expenses_by_category == {"Lebensmittel": 3_000}
+    db.close()
+
+
+def test_compute_overview_materialises_recurring(tmp_path):
+    # The recurring path of compute_overview: a recurring variable expense that
+    # started in an earlier month is materialised into the requested month and
+    # summed alongside this month's one-off spending.
+    db, income, fixed, expenses = _repos(tmp_path)
+    expenses.add(VariableExpense("2026-05-15", 4_000, "Streaming & Abos", recurring=True))
+    expenses.add(VariableExpense("2026-06-05", 3_000, "Lebensmittel"))
+
+    ov = budget.compute_overview(income, fixed, expenses, 2026, 6)
+    assert ov.variable_cents == 7_000        # 3000 one-off + 4000 recurring
+    assert ov.expenses_by_category == {"Streaming & Abos": 4_000, "Lebensmittel": 3_000}
     db.close()

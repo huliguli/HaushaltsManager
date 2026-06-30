@@ -161,8 +161,8 @@ def _tx(payee="", purpose="", amount=-1000):
 def test_categorizer_seed_rules():
     cat = Categorizer()
     assert cat.categorize(_tx("REWE Markt GmbH", "danke")).category == "Lebensmittel"
-    assert cat.categorize(_tx("ARAL Tankstelle")).category == "Tanken"
-    assert cat.categorize(_tx("NETFLIX.COM")).category == "Freizeit"
+    assert cat.categorize(_tx("ARAL Tankstelle")).category == "Auto & Tanken"
+    assert cat.categorize(_tx("NETFLIX.COM")).category == "Streaming & Abos"
     unknown = cat.categorize(_tx("Irgendein Laden XY"))
     assert unknown.category == "Sonstiges" and unknown.category_confidence == CAT_NONE
 
@@ -170,9 +170,11 @@ def test_categorizer_seed_rules():
 def test_categorizer_whole_word_no_false_positive():
     # "h m" (from H&M) must not fire inside "gmbh menue"; and DM only as a word.
     cat = Categorizer()
-    assert cat.categorize(_tx("Restaurant GmbH Menue")).category != "Kleidung"
-    assert cat.categorize(_tx("H&M Hennes")).category == "Kleidung"
-    assert cat.categorize(_tx("DM-DROGERIE Filiale")).category == "Drogerie"
+    # Positive form: a real restaurant lands in Restaurant & Café — which also
+    # proves the whole-word token "h m" did NOT fire inside "gmbh menue".
+    assert cat.categorize(_tx("Restaurant GmbH Menue")).category == "Restaurant & Café"
+    assert cat.categorize(_tx("H&M Hennes")).category == "Kleidung & Mode"
+    assert cat.categorize(_tx("DM-DROGERIE Filiale")).category == "Drogerie & Körperpflege"
 
 
 def test_categorizer_learned_overrides_seed():
@@ -185,6 +187,48 @@ def test_categorizer_learned_overrides_seed():
 def test_income_has_no_category():
     t = Categorizer().categorize(_tx("Arbeitgeber AG", amount=200000))
     assert t.is_income and t.category == "" and t.category_confidence == CAT_NONE
+
+
+def test_categorizer_fast_food_brands():
+    # The new "Essen Bestellen & Fast Food" category and its lead brands, with
+    # the merchant glued to city/number as it appears on real card statements.
+    cat = Categorizer()
+    food = "Essen Bestellen & Fast Food"
+    assert cat.categorize(_tx("BURGER KING 123 BERLIN")).category == food
+    assert cat.categorize(_tx("SUBWAY 4711")).category == food
+    assert cat.categorize(_tx("LIEFERANDO.DE")).category == food
+    assert cat.categorize(_tx("MCDONALDS BERLIN")).category == food  # no apostrophe
+
+
+def test_categorizer_disambiguation_order():
+    # Order-critical look-alikes: the specific rule must beat the generic token.
+    cat = Categorizer()
+    assert cat.categorize(_tx("AMAZON PRIME")).category == "Streaming & Abos"
+    assert cat.categorize(_tx("AMAZON DE MARKETPLACE")).category == "Shopping & Online"
+    assert cat.categorize(_tx("UBER EATS")).category == "Essen Bestellen & Fast Food"
+    assert cat.categorize(_tx("UBER TRIP")).category == "Mobilität & ÖPNV"
+    assert cat.categorize(_tx("APPLE MUSIC")).category == "Streaming & Abos"
+    assert cat.categorize(_tx("APPLE STORE")).category == "Elektronik & Technik"
+
+
+def test_categorizer_whole_word_false_positive_guards():
+    # WHOLE_WORD_ONLY proven positively: short tokens fire as a whole word but
+    # never as a substring of an unrelated word.
+    cat = Categorizer()
+    assert cat.categorize(_tx("ADMIN SERVICE GMBH")).category == "Sonstiges"   # not "dm"
+    assert cat.categorize(_tx("Totalbetrag Sammelzahlung")).category == "Sonstiges"  # not "total"
+    assert cat.categorize(_tx("DM Filiale")).category == "Drogerie & Körperpflege"
+    assert cat.categorize(_tx("TOTAL Tankstelle")).category == "Auto & Tanken"
+
+
+def test_categorizer_more_brands_per_category():
+    # One real brand per several further v2 categories (engine-verified mapping).
+    cat = Categorizer()
+    assert cat.categorize(_tx("REWE Markt GmbH")).category == "Lebensmittel"
+    assert cat.categorize(_tx("STARBUCKS")).category == "Restaurant & Café"
+    assert cat.categorize(_tx("SPOTIFY")).category == "Streaming & Abos"
+    assert cat.categorize(_tx("ARAL Tankstelle")).category == "Auto & Tanken"
+    assert cat.categorize(_tx("Hofladen am Dorf")).category == "Lebensmittel"  # keyword
 
 
 # --- normalisation + de-dup ------------------------------------------------
@@ -217,12 +261,15 @@ def test_rules_learning_and_dedup_and_profiles(tmp_path):
     log = ImportLogRepository(db)
     profiles = BankProfileRepository(db)
 
-    # Unknown payee -> default; after learning, the rule wins.
+    # Genuinely unknown payee -> default; after learning, the rule wins. (A
+    # name with no seed match is used on purpose so the first assert really
+    # exercises the default path — e.g. "Hofladen ..." would now hit the
+    # built-in "hofladen" -> Lebensmittel keyword.)
     cat0 = Categorizer(rules.rules())
-    assert cat0.categorize(_tx("Hofladen Krause")).category == "Sonstiges"
-    rules.upsert(normalize("Hofladen Krause"), "Lebensmittel", learned=True)
+    assert cat0.categorize(_tx("Krause Direktverkauf")).category == "Sonstiges"
+    rules.upsert(normalize("Krause Direktverkauf"), "Lebensmittel", learned=True)
     cat1 = Categorizer(rules.rules())
-    learned = cat1.categorize(_tx("Hofladen Krause e.K."))
+    learned = cat1.categorize(_tx("Krause Direktverkauf e.K."))
     assert learned.category == "Lebensmittel" and learned.category_confidence == CAT_LEARNED
 
     # De-dup: a hash becomes "known" once logged.

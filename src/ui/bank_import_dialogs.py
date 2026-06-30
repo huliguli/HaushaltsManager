@@ -252,7 +252,9 @@ class BankReviewDialog(QDialog):
         # Category hosts a combo cell-widget that ResizeToContents cannot measure
         # -> fixed width so the category name is fully readable.
         header.setSectionResizeMode(6, QHeaderView.ResizeMode.Fixed)
-        self.table.setColumnWidth(6, 190)
+        # Wide enough for the longest category name ("Essen Bestellen & Fast
+        # Food") in the combo cell-widget (ResizeToContents cannot measure it).
+        self.table.setColumnWidth(6, 240)
         root.addWidget(self.table, 1)
 
         buttons = QHBoxLayout()
@@ -391,7 +393,7 @@ class ImportRulesDialog(QDialog):
         head.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         head.setSectionResizeMode(1, QHeaderView.ResizeMode.Fixed)
         head.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
-        self.table.setColumnWidth(1, 170)
+        self.table.setColumnWidth(1, 240)
         root.addWidget(self.table, 1)
         self._reload()
 
