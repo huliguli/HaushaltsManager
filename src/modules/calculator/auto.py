@@ -63,7 +63,8 @@ class AutoResult:
     balloon_result: object | None = None
 
 
-def _extras(price_cents: int, extras: AutoExtras, balloon_reserve_cents: int) -> dict[str, int]:
+def _extras(price_cents: int, extras: AutoExtras) -> dict[str, int]:
+    """Default running-cost amounts from the rules of thumb (no balloon line)."""
     out: dict[str, int] = {}
     if extras.vollkasko:
         out["Vollkasko (0,4 %/Mon.)"] = round_half_up(price_cents * VOLLKASKO_MONTHLY_RATE)
@@ -75,8 +76,6 @@ def _extras(price_cents: int, extras: AutoExtras, balloon_reserve_cents: int) ->
         out["TÜV-Rücklage"] = TUV_RESERVE_CENTS
     if extras.maintenance:
         out["Wartung & Reifen"] = MAINTENANCE_CENTS
-    if balloon_reserve_cents > 0:
-        out["Schlussraten-Rücklage"] = balloon_reserve_cents
     return out
 
 
@@ -102,11 +101,17 @@ def compute(
     mode: str = "standard",
     balloon_cents: int = 0,
     extras: AutoExtras | None = None,
+    extras_override: dict[str, int] | None = None,
     monthly_disposable_cents: int = 0,
     current_auto_fixed_cents: int = 0,
 ) -> AutoResult:
-    """Compute financing, running costs and household-budget feasibility."""
-    extras = extras or AutoExtras()
+    """Compute financing, running costs and household-budget feasibility.
+
+    Running costs come either from ``extras_override`` (explicit, user-edited
+    {label: cents} amounts — non-positive entries are dropped) or, if that is
+    ``None``, from the boolean ``extras`` rules of thumb. The balloon reserve
+    line is always derived from the financing and added on top.
+    """
     principal = max(0, price_cents - down_payment_cents)
 
     annuity_result = None
@@ -121,7 +126,12 @@ def compute(
         annuity_result = annuity.compute(principal, annual_rate_pct, term_months)
         monthly_financing = annuity_result.monthly_payment_cents
 
-    extras_breakdown = _extras(price_cents, extras, balloon_reserve)
+    if extras_override is not None:
+        extras_breakdown = {k: int(v) for k, v in extras_override.items() if v and int(v) > 0}
+    else:
+        extras_breakdown = _extras(price_cents, extras or AutoExtras())
+    if balloon_reserve > 0:
+        extras_breakdown["Schlussraten-Rücklage"] = balloon_reserve
     extras_total = sum(extras_breakdown.values())
     monthly_total = monthly_financing + extras_total
 

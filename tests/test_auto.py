@@ -91,3 +91,35 @@ def test_good_case_financing_amounts():
     assert good.monthly_financing_cents == 17_528
     assert good.monthly_total_cents == 17_528          # no extras
     assert good.remaining_after_auto_cents == 182_472
+
+
+def test_extras_override_replaces_defaults():
+    # User-edited running-cost amounts are used verbatim (e.g. a larger tyre
+    # reserve), instead of the rule-of-thumb defaults.
+    override = {"Vollkasko": 14_000, "Kfz-Steuer": 1_500, "TÜV-Rücklage": 800,
+                "Wartung": 3_000, "Reifen-Rücklage": 9_000}
+    res = auto.compute(price_cents=3_500_000, down_payment_cents=500_000,
+                       annual_rate_pct=4.9, term_months=60, extras_override=override,
+                       monthly_disposable_cents=91_804)
+    assert res.extras_breakdown == override
+    assert res.extras_total_cents == 28_300
+    assert res.monthly_total_cents == res.monthly_financing_cents + 28_300
+
+
+def test_extras_override_drops_nonpositive():
+    # Zero / negative entries are not counted (an emptied field = cost off).
+    res = auto.compute(price_cents=2_000_000, annual_rate_pct=3.0, term_months=48,
+                       extras_override={"Vollkasko": 8_000, "Kfz-Steuer": 0,
+                                        "Reifen-Rücklage": -5})
+    assert res.extras_breakdown == {"Vollkasko": 8_000}
+    assert res.extras_total_cents == 8_000
+
+
+def test_extras_override_keeps_balloon_reserve():
+    # The balloon reserve is derived from the financing and always added on top
+    # of the user-edited running costs.
+    res = auto.compute(price_cents=3_000_000, term_months=48, annual_rate_pct=4.0,
+                       mode="balloon", balloon_cents=1_200_000,
+                       extras_override={"Vollkasko": 12_000})
+    assert "Schlussraten-Rücklage" in res.extras_breakdown
+    assert res.extras_breakdown["Vollkasko"] == 12_000

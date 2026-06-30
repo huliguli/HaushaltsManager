@@ -31,7 +31,6 @@ from PyQt6.QtWidgets import (
 )
 
 from modules.calculator import annuity, auto, balloon, house
-from modules.calculator.auto import AutoExtras
 from modules.money import format_eur
 from ui import theme
 from ui.views.base_view import BaseView
@@ -114,11 +113,19 @@ class _CalcTab(QWidget):
 
         form_wrap = QFrame()
         form_wrap.setObjectName("Card")
-        form_wrap.setMaximumWidth(360)
         self.form = QVBoxLayout(form_wrap)
         self.form.setContentsMargins(20, 20, 20, 20)
         self.form.setSpacing(12)
-        root.addWidget(form_wrap)
+        # The form can grow tall (e.g. the car tab's editable running costs), so
+        # the input column scrolls instead of clipping on smaller windows.
+        form_scroll = QScrollArea()
+        form_scroll.setWidgetResizable(True)
+        form_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        form_scroll.setMaximumWidth(380)
+        form_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        form_scroll.setStyleSheet("QScrollArea { background: transparent; border: none; }")
+        form_scroll.setWidget(form_wrap)
+        root.addWidget(form_scroll)
 
         results_scroll = QScrollArea()
         results_scroll.setWidgetResizable(True)
@@ -331,7 +338,27 @@ class _BalloonTab(_CalcTab):
 
 
 # --- Car tab ---------------------------------------------------------------
+def _amount_row(label_text: str, field: QWidget) -> QWidget:
+    """Compact 'label : field' row for an editable running-cost amount."""
+    row = QWidget()
+    h = QHBoxLayout(row)
+    h.setContentsMargins(0, 0, 0, 0)
+    h.setSpacing(8)
+    lab = QLabel(label_text)
+    lab.setObjectName("FieldLabel")
+    lab.setMinimumWidth(150)
+    h.addWidget(lab)
+    h.addWidget(field, 1)
+    return row
+
+
 class _AutoTab(_CalcTab):
+    # Default monthly running-cost reserves (cents). Vollkasko scales with price.
+    _DEF_KFZ = auto.KFZ_STEUER_COMBUSTION_CENTS   # ~15 €
+    _DEF_TUV = auto.TUV_RESERVE_CENTS             # ~8 €
+    _DEF_WARTUNG = 3000                           # 30 € (split from the old
+    _DEF_REIFEN = 2000                            # 20 €  "Wartung & Reifen ~50 €")
+
     def __init__(self, ctx) -> None:
         super().__init__(ctx)
         self.price = MoneyLineEdit(3500000)
@@ -353,15 +380,19 @@ class _AutoTab(_CalcTab):
         ml.addStretch(1)
 
         self.balloon = MoneyLineEdit(1200000)
-        self.vollkasko = QCheckBox("Vollkasko (~0,4 %/Mon.)")
-        self.vollkasko.setChecked(True)
-        self.electric = QCheckBox("Elektroauto (Kfz-Steuer 0 €)")
-        self.kfz = QCheckBox("Kfz-Steuer")
-        self.kfz.setChecked(True)
-        self.tuv = QCheckBox("TÜV-Rücklage (~8 €)")
-        self.tuv.setChecked(True)
-        self.maint = QCheckBox("Wartung & Reifen (~50 €)")
-        self.maint.setChecked(True)
+        self.electric = QCheckBox("Elektroauto (keine Kfz-Steuer)")
+
+        # Editable monthly running costs (€/Monat). Vollkasko is pre-filled from
+        # ~0.4 % of the price and keeps tracking the price until the user edits it.
+        self.vk = MoneyLineEdit(round(3500000 * auto.VOLLKASKO_MONTHLY_RATE))
+        self.kfz = MoneyLineEdit(self._DEF_KFZ)
+        self.tuv = MoneyLineEdit(self._DEF_TUV)
+        self.wartung = MoneyLineEdit(self._DEF_WARTUNG)
+        self.reifen = MoneyLineEdit(self._DEF_REIFEN)
+        self._vk_edited = False
+        self.vk.textEdited.connect(lambda: setattr(self, "_vk_edited", True))
+        self.electric.toggled.connect(
+            lambda on: self.kfz.set_cents(0 if on else self._DEF_KFZ))
 
         widgets = [
             labelled("Kaufpreis", self.price),
@@ -373,15 +404,25 @@ class _AutoTab(_CalcTab):
         ]
         for i, w in enumerate(widgets):
             self.form.insertWidget(i, w)
-        extras_title = QLabel("Laufende Nebenkosten")
+
+        extras_title = QLabel("Laufende Nebenkosten (€/Monat) – anpassbar")
         extras_title.setObjectName("FieldLabel")
         self.form.insertWidget(6, extras_title)
-        for i, w in enumerate([self.vollkasko, self.electric, self.kfz, self.tuv, self.maint]):
-            self.form.insertWidget(7 + i, w)
+        self.form.insertWidget(7, self.electric)
+        extra_rows = [
+            ("Vollkasko", self.vk),
+            ("Kfz-Steuer", self.kfz),
+            ("TÜV-Rücklage", self.tuv),
+            ("Wartung", self.wartung),
+            ("Reifen-Rücklage", self.reifen),
+        ]
+        for i, (lab, field) in enumerate(extra_rows):
+            self.form.insertWidget(8 + i, _amount_row(lab, field))
+
         go = QPushButton("Berechnen")
         go.setObjectName("Primary")
         go.clicked.connect(self._compute)
-        self.form.insertWidget(12, go)
+        self.form.insertWidget(13, go)
         self.form.addStretch(1)
         self._compute()
 
@@ -391,10 +432,23 @@ class _AutoTab(_CalcTab):
         down = self.down.cents() or 0
         if price is None:
             return self._show_error("Bitte einen gültigen Kaufpreis eingeben.")
+        # Keep the Vollkasko default in step with the price until manually changed.
+        if not self._vk_edited:
+            self.vk.set_cents(round(price * auto.VOLLKASKO_MONTHLY_RATE))
         balloon_cents = self.balloon.cents() or 0
         mode = "balloon" if self.mode_balloon.isChecked() else "standard"
 
-        # Budget integration from the live household figures.
+        # User-edited running-cost amounts (0 / empty = not counted).
+        override = {
+            "Vollkasko": self.vk.cents() or 0,
+            "Kfz-Steuer": self.kfz.cents() or 0,
+            "TÜV-Rücklage": self.tuv.cents() or 0,
+            "Wartung": self.wartung.cents() or 0,
+            "Reifen-Rücklage": self.reifen.cents() or 0,
+        }
+
+        # Budget basis: the live "Verbleibend" from the dashboard, plus any
+        # current car fixed costs that free up when the car is replaced.
         disposable = self.ctx.overview().after_all_cents
         current_auto = sum(
             c.amount_cents for c in self.ctx.fixed.list() if c.category == "Auto")
@@ -403,10 +457,7 @@ class _AutoTab(_CalcTab):
                 price_cents=price, down_payment_cents=down, annual_rate_pct=self.rate.value(),
                 term_months=self.term.value(), mode=mode,
                 balloon_cents=min(balloon_cents, price - down),
-                extras=AutoExtras(
-                    vollkasko=self.vollkasko.isChecked(), is_electric=self.electric.isChecked(),
-                    kfz_steuer=self.kfz.isChecked(), tuv_reserve=self.tuv.isChecked(),
-                    maintenance=self.maint.isChecked()),
+                extras_override=override,
                 monthly_disposable_cents=disposable, current_auto_fixed_cents=current_auto)
         except ValueError as exc:
             return self._show_error(str(exc))
@@ -432,17 +483,31 @@ class _AutoTab(_CalcTab):
             ("Nebenkosten/Mon.", format_eur(res.extras_total_cents), c["amber"]),
             ("Gesamt/Monat", format_eur(res.monthly_total_cents), c["text"]),
         ]))
+        rem = res.remaining_after_auto_cents
         self.results.addWidget(self._metric_row([
-            ("Verfügbares Auto-Budget", format_eur(res.available_budget_cents), c["blue"]),
-            ("Verbleibend nach Auto", format_eur(res.remaining_after_auto_cents),
-             c["green"] if res.remaining_after_auto_cents >= 0 else c["red"]),
-            ("Laufende Autokosten (entfallen)", format_eur(current_auto), c["grey"]),
+            ("Verfügbar (Verbleibend)", format_eur(disposable), c["blue"]),
+            ("Verbleibend mit diesem Auto", format_eur(rem),
+             c["green"] if rem >= 0 else c["red"]),
         ]))
+
+        # Make the budget basis transparent (esp. the freed existing car costs).
+        if current_auto > 0:
+            note = QLabel(
+                f"Budget = Verbleibend {format_eur(disposable)} + frei werdende "
+                f"Autokosten {format_eur(current_auto)} = {format_eur(res.available_budget_cents)} "
+                f"– Gesamt/Monat {format_eur(res.monthly_total_cents)}.")
+            note.setObjectName("Muted")
+            note.setWordWrap(True)
+            self.results.addWidget(note)
 
         if res.extras_breakdown:
             title = QLabel("Nebenkosten im Detail")
             title.setObjectName("H2")
             self.results.addWidget(title)
+            hint = QLabel("Beträge links anpassen (z. B. mehr Reifen-Rücklage), dann neu berechnen.")
+            hint.setObjectName("Faint")
+            hint.setWordWrap(True)
+            self.results.addWidget(hint)
             for label, cents in res.extras_breakdown.items():
                 line = QHBoxLayout()
                 line.addWidget(QLabel(label))
