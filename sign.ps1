@@ -5,7 +5,9 @@ param(
     [string]$File,
     [string]$Pfx,
     [string]$Password,
-    [string]$Timestamp = "http://timestamp.digicert.com",
+    # Comma-separated RFC3161 timestamp servers, tried in order. A single server
+    # outage/rate-limit should not fail the whole release, so we fall back.
+    [string]$Timestamp = "http://timestamp.digicert.com,http://timestamp.sectigo.com",
     [string]$SignTool
 )
 $ErrorActionPreference = 'Stop'
@@ -24,13 +26,20 @@ if (-not $SignTool) {
 }
 if (-not $SignTool) { throw "signtool.exe nicht gefunden (Windows SDK erforderlich)." }
 
-# Argument-Array (kein String-Konkatenat) — Passwort/Pfade werden sauber uebergeben.
-$signArgs = @(
-    'sign', '/fd', 'sha256', '/f', $Pfx, '/p', $Password,
-    '/tr', $Timestamp, '/td', 'sha256', '/d', 'HaushaltsManager', $File
-)
-& $SignTool @signArgs
-if ($LASTEXITCODE -ne 0) { throw "Signieren fehlgeschlagen (Exit $LASTEXITCODE)." }
+# Try each timestamp server in turn; argument-array (no string concat) so the
+# password/paths are passed cleanly.
+$tsServers = $Timestamp -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ }
+$signed = $false
+foreach ($ts in $tsServers) {
+    $signArgs = @(
+        'sign', '/fd', 'sha256', '/f', $Pfx, '/p', $Password,
+        '/tr', $ts, '/td', 'sha256', '/d', 'HaushaltsManager', $File
+    )
+    & $SignTool @signArgs
+    if ($LASTEXITCODE -eq 0) { $signed = $true; break }
+    Write-Host "Zeitstempel-Server fehlgeschlagen ($ts) — versuche naechsten ..."
+}
+if (-not $signed) { throw "Signieren fehlgeschlagen (alle Zeitstempel-Server, Exit $LASTEXITCODE)." }
 
 & $SignTool verify /pa /v $File
 if ($LASTEXITCODE -ne 0) {

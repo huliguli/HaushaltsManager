@@ -15,6 +15,8 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass, field
 
+from modules.money import round_half_up
+
 
 @dataclass
 class ScheduleRow:
@@ -51,7 +53,7 @@ def monthly_payment(principal_cents: int, annual_rate_pct: float, term_months: i
         pay = principal_cents / term_months
     else:
         pay = principal_cents * i / (1.0 - (1.0 + i) ** (-term_months))
-    return round(pay)
+    return round_half_up(pay)
 
 
 def build_schedule(
@@ -61,6 +63,10 @@ def build_schedule(
     """Full month-by-month amortisation table ending at a zero balance."""
     if term_months <= 0:
         raise ValueError("Laufzeit muss größer als 0 sein.")
+    # Nothing to amortise: return an empty schedule so compute() reports a term
+    # of 0 instead of a phantom all-zero first row (e.g. house price == equity).
+    if principal_cents <= 0:
+        return []
     pay = payment_cents if payment_cents is not None else monthly_payment(
         principal_cents, annual_rate_pct, term_months
     )
@@ -69,7 +75,7 @@ def build_schedule(
     rows: list[ScheduleRow] = []
 
     for month in range(1, term_months + 1):
-        interest = round(balance * i)
+        interest = round_half_up(balance * i)
         is_last = month == term_months
         if is_last:
             principal_part = balance
@@ -134,4 +140,4 @@ def solve_principal(payment_cents: int, annual_rate_pct: float, term_months: int
     i = monthly_rate(annual_rate_pct)
     if abs(i) < 1e-12:
         return payment_cents * term_months
-    return round(payment_cents * (1.0 - (1.0 + i) ** (-term_months)) / i)
+    return round_half_up(payment_cents * (1.0 - (1.0 + i) ** (-term_months)) / i)

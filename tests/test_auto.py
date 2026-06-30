@@ -58,3 +58,13 @@ def test_feasibility_badges():
                          monthly_disposable_cents=0)
     assert risky.feasibility == "riskant"
     assert risky.remaining_after_auto_cents < 0
+
+
+def test_feasibility_knapp_and_boundaries():
+    # The middle "knapp" band and its exact thresholds were never covered.
+    assert auto._feasibility(75_000, 100_000) == "gut"      # ratio 0.75 -> still gut
+    assert auto._feasibility(90_000, 100_000) == "knapp"    # between 0.75 and 1.0
+    assert auto._feasibility(100_000, 100_000) == "knapp"   # ratio 1.0 -> still knapp
+    assert auto._feasibility(100_001, 100_000) == "riskant"  # just over budget
+    assert auto._feasibility(0, 0) == "gut"                 # no budget, no cost
+    assert auto._feasibility(5, 0) == "riskant"             # no budget, some cost

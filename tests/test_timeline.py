@@ -43,3 +43,28 @@ def test_past_costs_excluded():
     res = timeline.build(100_000, costs, frm=date(2026, 6, 29))
     assert res.current_fixed_total_cents == 0
     assert res.events == []
+
+
+def test_same_month_costs_grouped_into_one_event():
+    # Two costs ending in the same calendar month must collapse into a single
+    # event (summed amount, both in `dropped`, end_date = the later one).
+    costs = [
+        FixedCost("Miete", 50_000, "Wohnen", end_date=None),
+        FixedCost("Leasing", 20_000, "Auto", end_date="2026-12-05"),
+        FixedCost("Handy", 3_000, "Sonstiges", end_date="2026-12-20"),
+    ]
+    res = timeline.build(300_000, costs, frm=date(2026, 6, 29))
+    assert len(res.events) == 1
+    ev = res.events[0]
+    assert ev.label == "Dez. 2026"
+    assert ev.dropped_amount_cents == 23_000        # 20000 + 3000
+    assert len(ev.dropped) == 2
+    assert ev.new_fixed_total_cents == 50_000       # only the open-ended rent remains
+    assert ev.date == date(2026, 12, 20)            # latest end date in the group
+
+
+def test_open_ended_only_has_no_events():
+    costs = [FixedCost("Miete", 50_000, "Wohnen", end_date=None)]
+    res = timeline.build(200_000, costs, frm=date(2026, 6, 29))
+    assert res.events == []
+    assert res.current_fixed_total_cents == 50_000

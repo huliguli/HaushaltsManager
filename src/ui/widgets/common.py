@@ -7,13 +7,19 @@ from PyQt6.QtWidgets import (
     QFrame,
     QGraphicsDropShadowEffect,
     QHBoxLayout,
+    QHeaderView,
     QLabel,
     QLayout,
     QSizePolicy,
+    QStackedLayout,
+    QTableWidget,
     QVBoxLayout,
     QWidget,
 )
 from PyQt6.QtGui import QColor
+
+# Shared with theme.py so card stripes and the card frame round identically.
+from ui.theme import RADIUS_CARD
 
 
 def clear_layout(layout: QLayout) -> None:
@@ -25,12 +31,6 @@ def clear_layout(layout: QLayout) -> None:
             w.deleteLater()
         elif item.layout() is not None:
             clear_layout(item.layout())
-
-
-def card() -> QFrame:
-    frame = QFrame()
-    frame.setObjectName("Card")
-    return frame
 
 
 def soft_shadow(widget: QWidget, color_rgba: str = "rgba(20,30,50,0.10)") -> None:
@@ -55,12 +55,6 @@ def muted(text: str) -> QLabel:
     return lbl
 
 
-def faint(text: str) -> QLabel:
-    lbl = QLabel(text)
-    lbl.setObjectName("Faint")
-    return lbl
-
-
 class StatCard(QFrame):
     """A dashboard summary card: title, big value, small hint, accent stripe."""
 
@@ -76,10 +70,7 @@ class StatCard(QFrame):
 
         self._stripe = QFrame()
         self._stripe.setFixedWidth(5)
-        self._stripe.setStyleSheet(
-            f"background: {accent}; border-top-left-radius: 16px; "
-            f"border-bottom-left-radius: 16px;"
-        )
+        self._stripe.setStyleSheet(self._stripe_qss(accent))
         root.addWidget(self._stripe)
 
         body = QVBoxLayout()
@@ -108,12 +99,16 @@ class StatCard(QFrame):
     def set_hint(self, text: str) -> None:
         self._hint.setText(text)
 
+    @staticmethod
+    def _stripe_qss(color: str) -> str:
+        # Match the card's corner radius exactly so the stripe and card edge align
+        # (set in one place so __init__ and set_accent can never drift apart).
+        return (f"background: {color}; border-top-left-radius: {RADIUS_CARD}px; "
+                f"border-bottom-left-radius: {RADIUS_CARD}px;")
+
     def set_accent(self, color: str) -> None:
         self._accent = color
-        self._stripe.setStyleSheet(
-            f"background: {color}; border-top-left-radius: 14px; "
-            f"border-bottom-left-radius: 14px;"
-        )
+        self._stripe.setStyleSheet(self._stripe_qss(color))
 
 
 class Pill(QLabel):
@@ -127,3 +122,61 @@ class Pill(QLabel):
             f"color: {fg}; background: {bg}; border-radius: 9px; "
             f"padding: 3px 10px; font-size: 12px; font-weight: 600;"
         )
+
+
+def pill_cell(pill: Pill) -> QWidget:
+    """Wrap a Pill in a left-aligned cell widget for a table status column."""
+    wrap = QWidget()
+    layout = QHBoxLayout(wrap)
+    layout.setContentsMargins(6, 2, 6, 2)
+    layout.addWidget(pill)
+    layout.addStretch(1)
+    return wrap
+
+
+def align_table_headers(table: QTableWidget, right_cols=()) -> None:
+    """Left-align header labels to match left-aligned text data; right-align the
+    given (money) columns so header and figures line up under each other."""
+    table.horizontalHeader().setDefaultAlignment(
+        Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+    for col in right_cols:
+        item = table.horizontalHeaderItem(col)
+        if item is not None:
+            item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+
+
+class TablePanel(QWidget):
+    """A table that shows a friendly centered empty-state when it has no rows.
+
+    The table and the placeholder share a QStackedLayout; call
+    :meth:`update_state` after (re)filling the table to switch between them.
+    """
+
+    def __init__(self, table: QTableWidget, message: str, hint: str = "") -> None:
+        super().__init__()
+        self._table = table
+        self._stack = QStackedLayout(self)
+        self._stack.setContentsMargins(0, 0, 0, 0)
+
+        placeholder = QFrame()
+        placeholder.setObjectName("Card")
+        box = QVBoxLayout(placeholder)
+        box.addStretch(1)
+        title = QLabel(message)
+        title.setObjectName("H2")
+        title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        box.addWidget(title)
+        if hint:
+            sub = QLabel(hint)
+            sub.setObjectName("Muted")
+            sub.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            sub.setWordWrap(True)
+            box.addWidget(sub)
+        box.addStretch(1)
+
+        self._stack.addWidget(table)        # index 0: data
+        self._stack.addWidget(placeholder)  # index 1: empty
+        self.update_state()
+
+    def update_state(self) -> None:
+        self._stack.setCurrentIndex(1 if self._table.rowCount() == 0 else 0)

@@ -21,6 +21,17 @@ from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 EURO = "€"
 
 
+def round_half_up(value: float | int | Decimal) -> int:
+    """Round to the nearest integer using round-half-up (commercial rounding).
+
+    Python's built-in :func:`round` uses banker's rounding (half-to-even). The
+    money convention of this code base is half-up everywhere, so the loan
+    calculators round per-row cents through this helper to stay consistent with
+    :func:`euros_to_cents` / :func:`format_eur` instead of mixing two policies.
+    """
+    return int(Decimal(str(value)).quantize(Decimal("1"), rounding=ROUND_HALF_UP))
+
+
 def euros_to_cents(value: float | int | str | Decimal) -> int:
     """Convert a euro amount to integer cents using round-half-up.
 
@@ -133,8 +144,12 @@ def parse_eur(text: str | int | float | None) -> int:
         parts = s.split(".")
         if len(parts) > 2:
             s = "".join(parts)  # several dots -> all thousands separators
-        elif len(parts[1]) == 3 and parts[0] != "":
-            s = parts[0] + parts[1]  # single dot + 3 digits -> thousands
+        elif len(parts[1]) == 3 and parts[0] and not parts[0].startswith("0"):
+            # Single dot + exactly 3 digits is a German thousands separator
+            # (2.500 -> 2500), but only when the integer part has no leading
+            # zero: "0.500"/"0.250" are decimals (500/250 millicents), not
+            # thousands — otherwise a typed 0.500 would silently become 500 €.
+            s = parts[0] + parts[1]
         # else: a normal decimal point, leave as-is.
 
     try:

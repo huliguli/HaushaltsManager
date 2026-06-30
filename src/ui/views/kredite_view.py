@@ -18,7 +18,6 @@ from PyQt6.QtWidgets import (
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
-    QWidget,
 )
 
 from modules import dates
@@ -27,7 +26,14 @@ from modules.money import format_eur
 from ui import theme
 from ui.dialogs import CreditDialog
 from ui.views.base_view import BaseView
-from ui.widgets.common import Pill, heading, muted
+from ui.widgets.common import (
+    Pill,
+    TablePanel,
+    align_table_headers,
+    heading,
+    muted,
+    pill_cell,
+)
 
 _ROLE_ID = Qt.ItemDataRole.UserRole
 _STATUS_AMPEL = {"aktiv": "blue", "abbezahlt": "green", "pausiert": "grey"}
@@ -79,7 +85,10 @@ class KrediteView(BaseView):
         self.table.setShowGrid(False)
         self.table.verticalHeader().setDefaultSectionSize(40)
         self.table.doubleClicked.connect(lambda: self._edit())
-        layout.addWidget(self.table, 1)
+        self._panel = TablePanel(
+            self.table, "Noch keine Kredite erfasst.",
+            "Lege über „+ Kredit“ deinen ersten Eintrag an.")
+        layout.addWidget(self._panel, 1)
 
         add.clicked.connect(self._add)
         edit.clicked.connect(self._edit)
@@ -106,12 +115,7 @@ class KrediteView(BaseView):
             key = _STATUS_AMPEL.get(cr.status, "grey")
             pill = Pill(CREDIT_STATUS_LABELS.get(cr.status, cr.status),
                         theme.ampel_color(key, colors), theme.ampel_soft(key, colors))
-            wrap = QWidget()
-            wl = QHBoxLayout(wrap)
-            wl.setContentsMargins(6, 2, 6, 2)
-            wl.addWidget(pill)
-            wl.addStretch(1)
-            self.table.setCellWidget(r, 6, wrap)
+            self.table.setCellWidget(r, 6, pill_cell(pill))
 
         header = self.table.horizontalHeader()
         header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
@@ -121,6 +125,8 @@ class KrediteView(BaseView):
         # cannot measure -> fixed width so the badge is never clipped.
         header.setSectionResizeMode(6, QHeaderView.ResizeMode.Fixed)
         self.table.setColumnWidth(6, 120)
+        align_table_headers(self.table, right_cols=(2, 3))  # Gesamtbetrag, Rate/Monat
+        self._panel.update_state()
         self.summary.setText(
             f"{active_count} aktive Kredite · monatliche Belastung {format_eur(monthly_total)}")
 

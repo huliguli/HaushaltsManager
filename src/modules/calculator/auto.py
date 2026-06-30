@@ -17,6 +17,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from modules.calculator import annuity, balloon
+from modules.money import round_half_up
 
 # Rules of thumb (cents where fixed, fraction where price-relative).
 VOLLKASKO_MONTHLY_RATE = 0.004           # 0.4 % of price per month
@@ -65,7 +66,7 @@ class AutoResult:
 def _extras(price_cents: int, extras: AutoExtras, balloon_reserve_cents: int) -> dict[str, int]:
     out: dict[str, int] = {}
     if extras.vollkasko:
-        out["Vollkasko (0,4 %/Mon.)"] = round(price_cents * VOLLKASKO_MONTHLY_RATE)
+        out["Vollkasko (0,4 %/Mon.)"] = round_half_up(price_cents * VOLLKASKO_MONTHLY_RATE)
     if extras.kfz_steuer:
         out["Kfz-Steuer"] = (
             KFZ_STEUER_ELECTRIC_CENTS if extras.is_electric else KFZ_STEUER_COMBUSTION_CENTS

@@ -34,7 +34,14 @@ from modules.money import format_eur
 from ui import theme
 from ui.dialogs import ExpenseDialog, FixedCostDialog, IncomeDialog
 from ui.views.base_view import BaseView
-from ui.widgets.common import Pill, heading, muted
+from ui.widgets.common import (
+    Pill,
+    TablePanel,
+    align_table_headers,
+    heading,
+    muted,
+    pill_cell,
+)
 
 _ROLE_ID = Qt.ItemDataRole.UserRole
 
@@ -108,13 +115,17 @@ class _IncomeTab(QWidget):
 
         self.table = _make_table(["Bezeichnung", "Art", "Betrag / Monat", "Status"])
         self.table.doubleClicked.connect(lambda: self._edit())
-        layout.addWidget(self.table, 1)
+        self._panel = TablePanel(
+            self.table, "Noch keine Einnahmen erfasst.",
+            "Lege über „+ Einnahme“ deine erste Einnahmequelle an.")
+        layout.addWidget(self._panel, 1)
 
         add.clicked.connect(self._add)
         edit.clicked.connect(self._edit)
         delete.clicked.connect(self._delete)
 
     def refresh(self) -> None:
+        colors = self.ctx.colors
         items = self.ctx.income.list()
         self.table.setRowCount(len(items))
         for r, it in enumerate(items):
@@ -123,11 +134,19 @@ class _IncomeTab(QWidget):
             self.table.setItem(r, 0, name)
             self.table.setItem(r, 1, _text_item(INCOME_TYPE_LABELS.get(it.income_type, "")))
             self.table.setItem(r, 2, _money_item(it.amount_cents))
-            self.table.setItem(r, 3, _text_item("Aktiv" if it.active else "Inaktiv"))
+            key = "green" if it.active else "grey"
+            label = "Aktiv" if it.active else "Inaktiv"
+            self.table.setCellWidget(r, 3, pill_cell(
+                Pill(label, theme.ampel_color(key, colors), theme.ampel_soft(key, colors))))
         header = self.table.horizontalHeader()
         header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
-        for col in (1, 2, 3):
+        for col in (1, 2):
             header.setSectionResizeMode(col, QHeaderView.ResizeMode.ResizeToContents)
+        # Status hosts a pill cell-widget -> fixed width so it never clips.
+        header.setSectionResizeMode(3, QHeaderView.ResizeMode.Fixed)
+        self.table.setColumnWidth(3, 110)
+        align_table_headers(self.table, right_cols=(2,))
+        self._panel.update_state()
         self.total.setText(f"Aktive Einnahmen: {format_eur(self.ctx.income.total_active())}")
 
     def _add(self) -> None:
@@ -197,7 +216,10 @@ class _FixedTab(QWidget):
         self.table = _make_table(
             ["Bezeichnung", "Kategorie", "Betrag / Monat", "Ende", "Status"])
         self.table.doubleClicked.connect(lambda: self._edit())
-        layout.addWidget(self.table, 1)
+        self._panel = TablePanel(
+            self.table, "Keine Fixkosten in dieser Ansicht.",
+            "Lege über „+ Fixkosten“ einen Eintrag an oder ändere den Filter.")
+        layout.addWidget(self._panel, 1)
 
         add.clicked.connect(self._add)
         edit.clicked.connect(self._edit)
@@ -229,12 +251,7 @@ class _FixedTab(QWidget):
             key = it.status_key()
             pill = Pill(dates.format_months_remaining(it.months_remaining()),
                         theme.ampel_color(key, colors), theme.ampel_soft(key, colors))
-            wrap = QWidget()
-            wl = QHBoxLayout(wrap)
-            wl.setContentsMargins(6, 2, 6, 2)
-            wl.addWidget(pill)
-            wl.addStretch(1)
-            self.table.setCellWidget(r, 4, wrap)
+            self.table.setCellWidget(r, 4, pill_cell(pill))
 
         header = self.table.horizontalHeader()
         header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
@@ -243,6 +260,8 @@ class _FixedTab(QWidget):
         # Status column holds a pill cell-widget -> fixed width so it never clips.
         header.setSectionResizeMode(4, QHeaderView.ResizeMode.Fixed)
         self.table.setColumnWidth(4, 140)
+        align_table_headers(self.table, right_cols=(2,))
+        self._panel.update_state()
         self.total.setText(f"Summe (gefiltert): {format_eur(shown_total)}  ·  "
                            f"Gesamt aktiv: {format_eur(self.ctx.fixed.total_active())}")
 
@@ -293,9 +312,13 @@ class _ExpensesTab(QWidget):
         prev = QPushButton("◀")
         prev.setObjectName("Ghost")
         prev.setFixedWidth(40)
+        prev.setAccessibleName("Vorheriger Monat")
+        prev.setToolTip("Vorheriger Monat")
         nxt = QPushButton("▶")
         nxt.setObjectName("Ghost")
         nxt.setFixedWidth(40)
+        nxt.setAccessibleName("Nächster Monat")
+        nxt.setToolTip("Nächster Monat")
         self.month_label = QLabel()
         self.month_label.setObjectName("H2")
         self.month_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -316,7 +339,10 @@ class _ExpensesTab(QWidget):
 
         self.table = _make_table(["Datum", "Kategorie", "Beschreibung", "Betrag"])
         self.table.doubleClicked.connect(lambda: self._edit())
-        layout.addWidget(self.table, 1)
+        self._panel = TablePanel(
+            self.table, "Keine Ausgaben in diesem Monat.",
+            "Erfasse über „+ Ausgabe“ deine erste Ausgabe – oder blättere zu einem anderen Monat.")
+        layout.addWidget(self._panel, 1)
 
         add.clicked.connect(self._add)
         edit.clicked.connect(self._edit)
@@ -344,6 +370,8 @@ class _ExpensesTab(QWidget):
         header.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
         for col in (0, 1, 3):
             header.setSectionResizeMode(col, QHeaderView.ResizeMode.ResizeToContents)
+        align_table_headers(self.table, right_cols=(3,))
+        self._panel.update_state()
         self.total.setText(f"Summe: {format_eur(self.ctx.expenses.total_for_range(start, end))}")
 
     def _add(self) -> None:
@@ -390,9 +418,16 @@ class HaushaltsbuchView(BaseView):
         self.tabs.addTab(self.income_tab, "Einnahmen")
         self.tabs.addTab(self.fixed_tab, "Fixkosten")
         self.tabs.addTab(self.expenses_tab, "Variable Ausgaben")
+        self.tabs.currentChanged.connect(self._refresh_current_tab)
         layout.addWidget(self.tabs, 1)
 
     def refresh(self) -> None:
-        self.income_tab.refresh()
-        self.fixed_tab.refresh()
-        self.expenses_tab.refresh()
+        # Only the visible tab needs fresh data now; the others reload when the
+        # user switches to them (currentChanged), avoiding three DB query sets
+        # and three full table rebuilds on every data change.
+        self._refresh_current_tab()
+
+    def _refresh_current_tab(self) -> None:
+        widget = self.tabs.currentWidget()
+        if widget is not None:
+            widget.refresh()

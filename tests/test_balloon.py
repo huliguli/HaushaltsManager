@@ -30,8 +30,18 @@ def test_balloon_schedule_ends_at_balloon():
 def test_recommended_reserve():
     p, b, rate, n = 2_000_000, 1_200_000, 3.0, 48
     res = balloon.compute(p, b, rate, n)
-    assert res.recommended_reserve_cents == round(b / n)
+    assert res.recommended_reserve_cents == b // n   # 25000, divides evenly
     assert res.effective_monthly_cents == res.monthly_payment_cents + res.recommended_reserve_cents
+
+
+def test_reserve_rounds_up_to_cover_balloon():
+    import math
+    # Non-divisible balloon: the reserve must round UP so n*reserve >= balloon —
+    # the saver has to reach the final payment, not fall a cent short.
+    p, b, n = 2_000_000, 1_000_000, 7
+    res = balloon.compute(p, b, 3.0, n)
+    assert res.recommended_reserve_cents == math.ceil(b / n)   # 142858, not 142857
+    assert res.recommended_reserve_cents * n >= b
 
 
 def test_comparison():

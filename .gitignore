@@ -55,8 +55,9 @@ assets/concept_*.png
 assets/concepts_preview.png
 assets/app_icon.png
 
-# --- Local notes (never publish) ----------------------------------------
+# --- Local notes / working docs (never publish) -------------------------
 *.local.md
+docs/
 
 # --- Editors / OS -------------------------------------------------------
 .vscode/

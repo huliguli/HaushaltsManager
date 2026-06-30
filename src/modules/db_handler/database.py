@@ -31,6 +31,9 @@ class Database:
         self.conn.row_factory = sqlite3.Row
         self.conn.execute("PRAGMA foreign_keys = ON")
         self.conn.execute("PRAGMA journal_mode = WAL")
+        # Column presence per table is static (schema is fixed at v1); cache it so
+        # every UPDATE does not re-run PRAGMA table_info just to touch updated_at.
+        self._column_cache: dict[str, set[str]] = {}
         self._initialise()
 
     # -- schema -------------------------------------------------------------
@@ -85,8 +88,12 @@ class Database:
         self.conn.commit()
 
     def _has_column(self, table: str, column: str) -> bool:
-        rows = self.conn.execute(f"PRAGMA table_info({table})").fetchall()
-        return any(r["name"] == column for r in rows)
+        cols = self._column_cache.get(table)
+        if cols is None:
+            rows = self.conn.execute(f"PRAGMA table_info({table})").fetchall()
+            cols = {r["name"] for r in rows}
+            self._column_cache[table] = cols
+        return column in cols
 
     def executemany(self, sql: str, seq: Iterable[Sequence[Any]]) -> None:
         self.conn.executemany(sql, seq)

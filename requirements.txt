@@ -1,5 +1,8 @@
 # HaushaltsManager — runtime + build dependencies (pinned)
-# Verified installed wheels on Python 3.14 (win_amd64). Re-pin with `pip freeze` after upgrades.
+# Local dev verified on Python 3.14 (win_amd64). The released .exe is built in CI
+# on the Python version pinned in .github/workflows/release.yml (currently 3.12);
+# keep that workflow and this file's Python target in step. Re-pin with
+# `pip freeze` after upgrades.
 
 # --- GUI ---
 PyQt6==6.11.0

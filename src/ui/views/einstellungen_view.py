@@ -98,7 +98,7 @@ class EinstellungenView(BaseView):
     def _check_now(self) -> None:
         self._check_btn.setEnabled(False)
         self._update_status.setText("Suche nach Updates …")
-        self._checker = updater.UpdateChecker(GITHUB_REPO, APP_VERSION)
+        self._checker = updater.UpdateChecker(GITHUB_REPO, APP_VERSION, parent=self)
         self._checker.result.connect(self._on_check_result)
         self._checker.start()
 
@@ -131,7 +131,7 @@ class EinstellungenView(BaseView):
         progress.setWindowModality(Qt.WindowModality.WindowModal)
         progress.setAutoClose(False)
 
-        self._installer = updater.UpdateInstaller(info.asset_url, info.hash_url)
+        self._installer = updater.UpdateInstaller(info.asset_url, info.hash_url, parent=self)
         self._installer.progress.connect(progress.setValue)
         self._installer.failed.connect(lambda msg: self._install_failed(progress, msg))
         self._installer.ready.connect(lambda path: self._install_ready(progress, path))
@@ -149,10 +149,24 @@ class EinstellungenView(BaseView):
         if updater.apply_update_and_restart(path):
             from PyQt6.QtWidgets import QApplication
             QApplication.instance().quit()
+            return
+        # apply returned False: in a real build that means the signature check
+        # failed (fail-closed); in a dev run it is simply not applicable.
+        from app_meta import is_frozen
+        if is_frozen():
+            QMessageBox.warning(
+                self, "Update nicht möglich",
+                "Die Signatur des Updates konnte nicht bestätigt werden. Das Update "
+                "wurde aus Sicherheitsgründen abgebrochen. Bitte lade die neue Version "
+                "bei Bedarf manuell von der Release-Seite herunter.")
         else:
             QMessageBox.information(
                 self, "Update", "Das Update wurde geladen. Im Entwicklungsmodus erfolgt kein "
                 "automatischer Austausch – bitte die neue Release-EXE verwenden.")
+
+    def background_threads(self) -> list:
+        """Running update threads owned by this view (for shutdown cleanup)."""
+        return [self._checker, self._installer]
 
     # -- data ---------------------------------------------------------------
     def _data_card(self) -> QFrame:

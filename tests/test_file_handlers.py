@@ -61,6 +61,46 @@ def test_excel_import_mapping_and_rows(tmp_path):
     assert items[0].amount_cents == 3_490  # absolute value of -34,90
 
 
+def test_rows_to_expenses_skips_and_fallbacks():
+    # The import loop's robustness branches (skip empty/garbage/zero/short rows,
+    # fall back to today on a bad date, keep positive amounts) were untested.
+    mapping = {"date": 0, "amount": 2, "description": 1, "category": None}
+    rows = [
+        ["05.06.2026", "REWE", "-34,90"],   # ok -> 3490 (abs)
+        ["06.06.2026", "leer", ""],          # empty amount -> skip
+        ["07.06.2026", "muell", "abc"],      # unparseable -> skip
+        ["08.06.2026", "null", "0,00"],      # zero -> skip
+        ["09.06.2026", "kurz"],              # too short for amount index -> skip
+        ["", "kein Datum", "12,00"],         # bad date -> today fallback, still imported
+        ["10.06.2026", "positiv", "55,00"],  # positive amount kept positive
+    ]
+    items, skipped = excel_io.rows_to_expenses(rows, mapping)
+    assert skipped == 4
+    assert len(items) == 3
+    assert items[0].amount_cents == 3_490
+    assert items[-1].amount_cents == 5_500
+    assert all(it.date for it in items)  # the bad-date row got a fallback date
+
+
+def test_read_preview_empty_and_header_only(tmp_path):
+    from openpyxl import Workbook
+
+    empty = tmp_path / "empty.xlsx"
+    Workbook().save(empty)
+    headers, data, mapping = excel_io.read_preview(empty)
+    assert headers == [] and data == []
+    assert mapping["amount"] is None
+
+    wb = Workbook()
+    wb.active.append(["Datum", "Verwendungszweck", "Betrag"])
+    header_only = tmp_path / "headeronly.xlsx"
+    wb.save(header_only)
+    headers, data, mapping = excel_io.read_preview(header_only)
+    assert headers == ["Datum", "Verwendungszweck", "Betrag"]
+    assert data == []
+    assert mapping["amount"] == 2
+
+
 def test_pdf_report_and_amount_extraction(tmp_path):
     overview, fixed, expenses, credits = _sample()
     out = pdf_report.generate_monthly_report(

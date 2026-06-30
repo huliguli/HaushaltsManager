@@ -16,10 +16,12 @@ actually be able to pay the balloon when it falls due.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 
 from modules.calculator import annuity
 from modules.calculator.annuity import AnnuityResult, ScheduleRow, monthly_rate
+from modules.money import round_half_up
 
 
 @dataclass
@@ -58,9 +60,9 @@ def balloon_payment(
         raise ValueError("Schlussrate darf den Finanzierungsbetrag nicht übersteigen.")
     i = monthly_rate(annual_rate_pct)
     if abs(i) < 1e-12:
-        return round((principal_cents - balloon_cents) / term_months)
+        return round_half_up((principal_cents - balloon_cents) / term_months)
     factor = (1.0 + i) ** (-term_months)
-    return round((principal_cents - balloon_cents * factor) * i / (1.0 - factor))
+    return round_half_up((principal_cents - balloon_cents * factor) * i / (1.0 - factor))
 
 
 def build_schedule(
@@ -84,7 +86,7 @@ def build_schedule(
     balance = principal_cents
     rows: list[ScheduleRow] = []
     for month in range(1, term_months + 1):
-        interest = round(balance * i)
+        interest = round_half_up(balance * i)
         if month == term_months:
             principal_part = balance - balloon_cents
         else:
@@ -106,7 +108,10 @@ def compute(
     schedule = build_schedule(principal_cents, balloon_cents, annual_rate_pct, term_months, pay)
     instalments_total = sum(r.payment_cents for r in schedule)
     total_paid = instalments_total + balloon_cents
-    reserve = round(balloon_cents / term_months)
+    # Round the reserve UP: the saver must reach (not undershoot) the balloon by
+    # the due date, so n*reserve >= balloon. round() would leave them a few cents
+    # short on non-divisible balloons.
+    reserve = math.ceil(balloon_cents / term_months)
     return BalloonResult(
         principal_cents=principal_cents,
         balloon_cents=balloon_cents,

@@ -55,6 +55,7 @@ class MainWindow(QWidget):
 
         self._views: list[BaseView] = []
         self._nav_buttons: list[QPushButton] = []
+        self._update_checker = None
 
         root = QHBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
@@ -149,7 +150,7 @@ class MainWindow(QWidget):
         QApplication.instance().setStyleSheet(theme.build_qss(self.ctx.colors))
         # Re-tint sidebar icons for the new theme.
         color = self.ctx.colors["sidebar_text"]
-        for (label, icon_name, _cls), btn in zip(_NAV, self._nav_buttons):
+        for (_label, icon_name, _cls), btn in zip(_NAV, self._nav_buttons):
             btn.setIcon(icons.icon(icon_name, color, 20))
         self._update_theme_button()
         for view in self._views:
@@ -158,9 +159,14 @@ class MainWindow(QWidget):
     # -- startup update check ----------------------------------------------
     def maybe_check_updates(self) -> None:
         """Start a non-blocking update check if the user enabled it."""
+        # Sweep any leftover installer from a previous update first.
+        updater.cleanup_temp_downloads()
         if not self.ctx.config.get("update_check_enabled", True):
             return
-        self._update_checker = updater.UpdateChecker(GITHUB_REPO, APP_VERSION)
+        # Parent the thread to the window so its C++ lifetime is tied to ours;
+        # closeEvent additionally waits for it (a parent alone does not make Qt
+        # wait for a running QThread).
+        self._update_checker = updater.UpdateChecker(GITHUB_REPO, APP_VERSION, parent=self)
         self._update_checker.result.connect(self._on_startup_update)
         self._update_checker.start()
 
@@ -181,7 +187,24 @@ class MainWindow(QWidget):
         if win.get("maximized"):
             self.showMaximized()
 
+    def _stop_background_threads(self) -> None:
+        """Stop any running update threads so none is destroyed while running.
+
+        The download thread cancels cooperatively (checked inside its loop); the
+        check thread has no interruption point but is bounded by its network
+        timeout, so we wait with a cap and proceed regardless on shutdown.
+        """
+        threads = [self._update_checker]
+        settings = self._views[-1] if self._views else None
+        if settings is not None and hasattr(settings, "background_threads"):
+            threads += settings.background_threads()
+        for thread in threads:
+            if thread is not None and thread.isRunning():
+                thread.requestInterruption()
+                thread.wait(4000)
+
     def closeEvent(self, event: QCloseEvent) -> None:
+        self._stop_background_threads()
         maximized = self.isMaximized()
         geo = self.normalGeometry()
         self.ctx.config.window = {

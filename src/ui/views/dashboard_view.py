@@ -117,12 +117,12 @@ class DashboardView(BaseView):
 
         pl.addLayout(self._avail_line(
             "Verfügbar nach Fixkosten", ov.after_fixed_cents,
-            c["green"] if ov.after_fixed_cents >= 0 else c["red"], c, big=True))
+            c["green"] if ov.after_fixed_cents >= 0 else c["red"], big=True))
         pl.addLayout(self._avail_line(
             "Verfügbar nach allem", ov.after_all_cents,
-            c["green"] if ov.after_all_cents >= 0 else c["red"], c))
+            c["green"] if ov.after_all_cents >= 0 else c["red"]))
         big_purchase = max(0, ov.after_all_cents)
-        line = self._avail_line("Budget für Großanschaffungen", big_purchase, c["blue"], c)
+        line = self._avail_line("Budget für Großanschaffungen", big_purchase, c["blue"])
         pl.addLayout(line)
         hint = QLabel(f"≈ {format_eur(big_purchase * 12)} pro Jahr ansparbar")
         hint.setObjectName("Faint")
@@ -197,7 +197,7 @@ class DashboardView(BaseView):
         lbl.setObjectName("H2")
         return lbl
 
-    def _avail_line(self, label: str, cents: int, color: str, c, big: bool = False) -> QHBoxLayout:
+    def _avail_line(self, label: str, cents: int, color: str, big: bool = False) -> QHBoxLayout:
         row = QHBoxLayout()
         name = QLabel(label)
         name.setObjectName("Muted")
@@ -217,10 +217,13 @@ class DashboardView(BaseView):
         grid.setHorizontalSpacing(16)
         grid.setVerticalSpacing(4)
         cycle = theme.chart_colors(c)
+        total = sum(by_cat.values()) or 1
         for i, (cat, val) in enumerate(by_cat.items()):
             dot = QLabel("●")
             dot.setStyleSheet(f"color: {cycle[i % len(cycle)]}; font-size: 13px;")
-            text = QLabel(f"{cat}  {format_eur(val)}")
+            # Show the share in percent so the legend conveys the split without
+            # relying on colour alone (WCAG 1.4.1).
+            text = QLabel(f"{cat}  {format_eur(val)} · {round(val * 100 / total)} %")
             text.setObjectName("Faint")
             r, col = divmod(i, 2)
             cell = QHBoxLayout()

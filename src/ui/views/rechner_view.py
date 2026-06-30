@@ -33,8 +33,9 @@ from PyQt6.QtWidgets import (
 from modules.calculator import annuity, auto, balloon, house
 from modules.calculator.auto import AutoExtras
 from modules.money import format_eur
+from ui import theme
 from ui.views.base_view import BaseView
-from ui.widgets.common import clear_layout, heading, muted
+from ui.widgets.common import align_table_headers, clear_layout, heading, muted
 from ui.widgets.inputs import MoneyLineEdit, labelled
 
 
@@ -97,6 +98,7 @@ def _schedule_table(schedule, max_rows: int = 0) -> QTableWidget:
     header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
     for col in range(1, 5):
         header.setSectionResizeMode(col, QHeaderView.ResizeMode.Stretch)
+    align_table_headers(table, right_cols=(1, 2, 3, 4))
     return table
 
 
@@ -125,7 +127,9 @@ class _CalcTab(QWidget):
         results_container = QWidget()
         results_container.setStyleSheet("background: transparent;")
         self.results = QVBoxLayout(results_container)
-        self.results.setContentsMargins(2, 2, 2, 2)
+        # Bottom inset so the amortisation table never sits flush against the
+        # window edge (it stretches to fill the results column).
+        self.results.setContentsMargins(2, 2, 2, 14)
         self.results.setSpacing(14)
         results_scroll.setWidget(results_container)
         root.addWidget(results_scroll, 1)
@@ -313,6 +317,7 @@ class _BalloonTab(_CalcTab):
         header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
         header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+        align_table_headers(table, right_cols=(1, 2))
         table.setMaximumHeight(220)
         return table
 
@@ -413,8 +418,8 @@ class _AutoTab(_CalcTab):
         # Feasibility badge banner.
         badge = QLabel(f"  {res.feasibility_label}  ")
         badge.setStyleSheet(
-            f"color: #fff; background: {badge_color}; border-radius: 9px; "
-            f"padding: 8px 14px; font-weight: 700; font-size: 15px;")
+            f"color: {theme.on_color(badge_color)}; background: {badge_color}; "
+            f"border-radius: 9px; padding: 8px 14px; font-weight: 700; font-size: 15px;")
         badge_row = QHBoxLayout()
         badge_row.addWidget(badge)
         badge_row.addStretch(1)

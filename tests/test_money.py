@@ -53,6 +53,22 @@ def test_parse_signs_and_symbols():
     assert parse_eur(1850.5) == 185050
 
 
+def test_parse_ambiguous_dot_and_leading_zero():
+    # A leading-zero integer part is a decimal, not a thousands group — a typed
+    # "0.500" must be 50 cents, never 500 € (the old thousands heuristic bug).
+    assert parse_eur("0.500") == 50
+    assert parse_eur("0.999") == 100      # 0.999 € -> 100 cents (half-up)
+    assert parse_eur("0.250") == 25
+    # Single dot with 1 or 2 decimals stays a decimal point.
+    assert parse_eur("1.5") == 150
+    assert parse_eur("1.50") == 150
+    # The documented German-thousands bias still holds for normal integers.
+    assert parse_eur("2.500") == 250000
+    assert parse_eur("10.500") == 1050000
+    # Parenthesised negative (accounting notation).
+    assert parse_eur("(58,80)") == -5880
+
+
 def test_parse_errors():
     with pytest.raises(MoneyParseError):
         parse_eur("")
