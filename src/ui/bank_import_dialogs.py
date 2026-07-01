@@ -214,8 +214,8 @@ class BankReviewDialog(QDialog):
         info = QLabel(
             f"{len(transactions)} neue Buchungen: {n_out} Ausgaben, {n_in} Einnahmen."
             + (f"  ·  {skipped} bereits importiert (übersprungen)." if skipped else "")
-            + "  Ausgaben sind vorausgewählt; Einnahmen werden als Einnahmequelle "
-            "angelegt (für regelmäßige Einnahmen).")
+            + "  Ausgaben sind vorausgewählt; Einnahmen werden als einmalige "
+            "Einnahme im jeweiligen Monat verbucht (kein dauerhaftes Einkommen).")
         info.setObjectName("Muted")
         info.setWordWrap(True)
         root.addWidget(info)

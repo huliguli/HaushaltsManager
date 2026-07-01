@@ -18,11 +18,20 @@ def month_bounds(year: int, month: int) -> tuple[str, str]:
 
 
 def compute_overview(
-    income_repo, fixed_repo, expense_repo, year: int, month: int
+    income_repo, fixed_repo, expense_repo, year: int, month: int,
+    var_income_repo=None,
 ) -> BudgetOverview:
-    """Income, fixed costs effective this month, and variable spending."""
+    """Income, fixed costs effective this month, and variable spending.
+
+    Income = recurring active sources + this month's one-off income (imported
+    bank credits and the like), so a single transfer counts only in its month
+    and never inflates the ongoing monthly income.
+    """
     start, end = month_bounds(year, month)
-    income = income_repo.total_active()
+    recurring_income = income_repo.total_active()
+    income = recurring_income
+    if var_income_repo is not None:
+        income += var_income_repo.total_for_month(year, month)
     fixed_costs = fixed_repo.active_for_month(start, end)
     fixed_total = sum(c.amount_cents for c in fixed_costs)
     # Month view counts one-off expenses for this month plus every recurring
@@ -33,6 +42,7 @@ def compute_overview(
     credits_total = sum(c.amount_cents for c in fixed_costs if c.category == "Kredit")
     return BudgetOverview(
         income_cents=income,
+        recurring_income_cents=recurring_income,
         fixed_cents=fixed_total,
         variable_cents=variable,
         credits_cents=credits_total,

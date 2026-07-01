@@ -124,7 +124,10 @@ class DashboardView(BaseView):
         big_purchase = max(0, ov.after_all_cents)
         line = self._avail_line("Budget für Großanschaffungen", big_purchase, c["blue"])
         pl.addLayout(line)
-        hint = QLabel(f"≈ {format_eur(big_purchase * 12)} pro Jahr ansparbar")
+        # Annual projection uses the recurring surplus only — a one-off credit
+        # this month must not be multiplied across the whole year.
+        yearly = max(0, ov.recurring_income_cents - ov.fixed_cents - ov.variable_cents) * 12
+        hint = QLabel(f"≈ {format_eur(yearly)} pro Jahr ansparbar")
         hint.setObjectName("Faint")
         pl.addWidget(hint)
         pl.addStretch(1)
@@ -168,7 +171,9 @@ class DashboardView(BaseView):
         pl.addWidget(sub)
         pl.addSpacing(6)
 
-        result = timeline.build(ov.income_cents, self.ctx.fixed.list())
+        # Future dropoff projection uses recurring income only (a one-off credit
+        # this month must not lift the projected available amount).
+        result = timeline.build(ov.recurring_income_cents, self.ctx.fixed.list())
 
         # Current state line.
         pl.addLayout(self._timeline_row(

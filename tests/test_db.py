@@ -127,6 +127,24 @@ def test_migration_adds_recurring_column(tmp_path):
     db.close()
 
 
+def test_variable_income_is_month_scoped(tmp_path):
+    # One-off (imported) income counts only in its booking month and is never
+    # carried into other months — a single credit must not become recurring.
+    from modules.db_handler.repositories import VariableIncomeRepository
+    from modules.models import VariableIncome
+    db = _db(tmp_path)
+    repo = VariableIncomeRepository(db)
+    repo.add(VariableIncome("2026-05-15", 5_000, "Freund Essen"))
+    rid = repo.add(VariableIncome("2026-05-20", 200_000, "Gehalt Mai"))
+    repo.add(VariableIncome("2026-06-01", 3_000, "Juni"))
+    assert repo.total_for_month(2026, 5) == 205_000
+    assert repo.total_for_month(2026, 7) == 0          # nothing carried over
+    assert len(repo.list_for_month(2026, 5)) == 2
+    repo.delete(rid)
+    assert repo.total_for_month(2026, 5) == 5_000
+    db.close()
+
+
 def test_credit_and_settings(tmp_path):
     db = _db(tmp_path)
     credits = CreditRepository(db)

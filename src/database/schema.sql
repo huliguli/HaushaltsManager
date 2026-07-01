@@ -23,6 +23,18 @@ CREATE TABLE IF NOT EXISTS income_sources (
     updated_at   TEXT    NOT NULL DEFAULT (datetime('now'))
 );
 
+-- --- One-off / dated income (e.g. imported bank credits) ------------------
+-- Unlike income_sources (recurring monthly), each row counts ONLY in its own
+-- month. A one-off transfer (someone paying you back 50 EUR) must never inflate
+-- the recurring monthly income. New table -> auto-created in existing DBs too.
+CREATE TABLE IF NOT EXISTS variable_income (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    date         TEXT    NOT NULL,                      -- ISO YYYY-MM-DD
+    amount_cents INTEGER NOT NULL DEFAULT 0,
+    source       TEXT,
+    created_at   TEXT    NOT NULL DEFAULT (datetime('now'))
+);
+
 -- --- Fixed / recurring costs ----------------------------------------------
 CREATE TABLE IF NOT EXISTS fixed_costs (
     id           INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -127,6 +139,7 @@ CREATE TABLE IF NOT EXISTS bank_profiles (
 
 -- --- Indexes ---------------------------------------------------------------
 CREATE INDEX IF NOT EXISTS idx_var_date     ON variable_expenses(date);
+CREATE INDEX IF NOT EXISTS idx_varincome_date ON variable_income(date);
 CREATE INDEX IF NOT EXISTS idx_var_category ON variable_expenses(category);
 CREATE INDEX IF NOT EXISTS idx_fixed_active ON fixed_costs(active);
 CREATE INDEX IF NOT EXISTS idx_credit_status ON credits(status);

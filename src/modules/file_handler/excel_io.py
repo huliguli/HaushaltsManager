@@ -194,7 +194,7 @@ def export_workbook(
     _widths(ws, [16, 34, 16, 16, 18])
     _header(ws, ["Datum", "Wegfallende Kosten", "Betrag", "Neue Fixsumme", "Verfügbar danach"],
             hr, right_cols=(2, 3, 4))
-    result = timeline.build(overview.income_cents, list(fixed_costs))
+    result = timeline.build(overview.recurring_income_cents, list(fixed_costs))
     r = hr + 1
     _cell(ws, r, 1, "Jetzt")
     _cell(ws, r, 2, "—")

@@ -22,7 +22,7 @@ from modules.bank_import import parsers as bank_parsers
 from modules.bank_import.categorize import Categorizer
 from modules.bank_import.model import normalize, transaction_hash
 from modules.file_handler import excel_io, pdf_import, pdf_report
-from modules.models import IncomeSource, VariableExpense
+from modules.models import VariableExpense, VariableIncome
 from ui import icons
 from ui.bank_import_dialogs import BankCsvMappingDialog, BankReviewDialog
 from ui.import_dialogs import MappingDialog, PdfImportDialog
@@ -239,9 +239,13 @@ class ImportExportView(BaseView):
         n_exp = n_inc = 0
         for t in transactions:
             if t.is_income:
-                self.ctx.income.add(IncomeSource(
-                    name=(t.payee or t.purpose or "Einnahme")[:80],
-                    amount_cents=t.abs_cents, income_type="sonstiges"))
+                # Imported credits are ONE-OFF income, booked to their statement
+                # month — NOT a recurring income source. A single transfer (e.g.
+                # someone paying you back for food) must never inflate the ongoing
+                # monthly income; it counts only in its month (see compute_overview).
+                self.ctx.var_income.add(VariableIncome(
+                    date=t.booking_date or today_iso, amount_cents=t.abs_cents,
+                    source=(t.payee or t.purpose or "Einnahme")[:80]))
                 n_inc += 1
             else:
                 # Imported transactions are one-off, dated to their actual
@@ -265,7 +269,7 @@ class ImportExportView(BaseView):
         self.ctx.notify_changed()
         QMessageBox.information(
             self, "Import abgeschlossen",
-            f"{n_exp} Ausgaben und {n_inc} Einnahmen übernommen."
+            f"{n_exp} Ausgaben und {n_inc} einmalige Einnahmen übernommen."
             + (f"\n{skipped} bereits vorhanden (übersprungen)." if skipped else ""))
 
     # -- export handlers ----------------------------------------------------

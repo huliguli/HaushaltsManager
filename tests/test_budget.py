@@ -44,6 +44,26 @@ def test_compute_overview_splits_credits_and_month(tmp_path):
     db.close()
 
 
+def test_compute_overview_one_time_income_only_in_its_month(tmp_path):
+    # An imported credit counts in its booking month but never inflates the
+    # ongoing monthly income (regression for the "all income in current month").
+    from modules.db_handler.repositories import VariableIncomeRepository
+    from modules.models import VariableIncome
+    db, income, fixed, expenses = _repos(tmp_path)
+    var_income = VariableIncomeRepository(db)
+    income.add(IncomeSource("Job", 180_000, "teilzeit"))
+    var_income.add(VariableIncome("2026-05-15", 205_000, "Mai-Gutschriften"))
+
+    may = budget.compute_overview(income, fixed, expenses, 2026, 5, var_income_repo=var_income)
+    jul = budget.compute_overview(income, fixed, expenses, 2026, 7, var_income_repo=var_income)
+    assert may.income_cents == 385_000     # recurring + one-off May
+    assert jul.income_cents == 180_000     # one-off NOT carried into July
+    # The forward-projection figure stays recurring-only in both months.
+    assert may.recurring_income_cents == 180_000
+    assert jul.recurring_income_cents == 180_000
+    db.close()
+
+
 def test_compute_overview_materialises_recurring(tmp_path):
     # The recurring path of compute_overview: a recurring variable expense that
     # started in an earlier month is materialised into the requested month and

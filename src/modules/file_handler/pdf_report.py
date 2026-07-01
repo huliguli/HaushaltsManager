@@ -157,8 +157,8 @@ def generate_monthly_report(
         story.append(Image(io.BytesIO(png), width=168 * mm, height=84 * mm))
         story.append(Spacer(1, 4 * mm))
 
-    # Fixed-cost timeline
-    result = timeline.build(overview.income_cents, list(fixed_costs))
+    # Fixed-cost timeline — recurring income only (one-off credits don't recur).
+    result = timeline.build(overview.recurring_income_cents, list(fixed_costs))
     if result.events:
         story.append(Paragraph("Fixkosten-Abbau", styles["HMSection"]))
         rows = [[ev.label, ", ".join(d.name for d in ev.dropped),

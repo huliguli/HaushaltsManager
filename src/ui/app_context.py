@@ -27,6 +27,7 @@ from modules.db_handler.repositories import (
     MonthlySummaryRepository,
     SettingsRepository,
     VariableExpenseRepository,
+    VariableIncomeRepository,
 )
 from modules.logging_setup import get_logger
 from modules.models import BudgetOverview
@@ -44,6 +45,7 @@ class AppContext(QObject):
         self.log = get_logger("ui")
 
         self.income = IncomeRepository(db)
+        self.var_income = VariableIncomeRepository(db)
         self.fixed = FixedCostRepository(db)
         self.expenses = VariableExpenseRepository(db)
         self.credits = CreditRepository(db)
@@ -77,4 +79,5 @@ class AppContext(QObject):
         return budget.compute_overview(
             self.income, self.fixed, self.expenses,
             year or today.year, month or today.month,
+            var_income_repo=self.var_income,
         )

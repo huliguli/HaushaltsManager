@@ -126,11 +126,13 @@ class _IncomeTab(QWidget):
 
     def refresh(self) -> None:
         colors = self.ctx.colors
-        items = self.ctx.income.list()
-        self.table.setRowCount(len(items))
-        for r, it in enumerate(items):
+        sources = self.ctx.income.list()                 # recurring monthly income
+        oneoffs = self.ctx.var_income.list_recent(200)    # one-off / imported credits
+        self.table.setRowCount(len(sources) + len(oneoffs))
+        r = 0
+        for it in sources:
             name = _text_item(it.name)
-            name.setData(_ROLE_ID, it.id)
+            name.setData(_ROLE_ID, ("src", it.id))       # tag the row's origin
             self.table.setItem(r, 0, name)
             self.table.setItem(r, 1, _text_item(INCOME_TYPE_LABELS.get(it.income_type, "")))
             self.table.setItem(r, 2, _money_item(it.amount_cents))
@@ -138,6 +140,17 @@ class _IncomeTab(QWidget):
             label = "Aktiv" if it.active else "Inaktiv"
             self.table.setCellWidget(r, 3, pill_cell(
                 Pill(label, theme.ampel_color(key, colors), theme.ampel_soft(key, colors))))
+            r += 1
+        for it in oneoffs:
+            name = _text_item(it.source or "Einmalige Einnahme")
+            name.setData(_ROLE_ID, ("var", it.id))
+            self.table.setItem(r, 0, name)
+            self.table.setItem(r, 1, _text_item("Einmalig"))
+            self.table.setItem(r, 2, _money_item(it.amount_cents))
+            self.table.setCellWidget(r, 3, pill_cell(
+                Pill(dates.format_date(it.date) or "einmalig",
+                     theme.ampel_color("blue", colors), theme.ampel_soft("blue", colors))))
+            r += 1
         header = self.table.horizontalHeader()
         header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         for col in (1, 2):
@@ -147,7 +160,12 @@ class _IncomeTab(QWidget):
         self.table.setColumnWidth(3, 110)
         align_table_headers(self.table, right_cols=(2,))
         self._panel.update_state()
-        self.total.setText(f"Aktive Einnahmen: {format_eur(self.ctx.income.total_active())}")
+        today = date.today()
+        oneoff_month = self.ctx.var_income.total_for_month(today.year, today.month)
+        text = f"Feste Einnahmen/Monat: {format_eur(self.ctx.income.total_active())}"
+        if oneoff_month:
+            text += f"  ·  einmalig diesen Monat: {format_eur(oneoff_month)}"
+        self.total.setText(text)
 
     def _add(self) -> None:
         dlg = IncomeDialog(parent=self)
@@ -155,9 +173,24 @@ class _IncomeTab(QWidget):
             self.ctx.income.add(dlg.result_model)
             self.ctx.notify_changed()
 
+    def _selected(self) -> tuple[str, int] | None:
+        """Return (kind, id) of the selected row: 'src' recurring or 'var' one-off."""
+        row = self.table.currentRow()
+        if row < 0:
+            return None
+        item = self.table.item(row, 0)
+        data = item.data(_ROLE_ID) if item else None
+        return tuple(data) if data else None
+
     def _edit(self) -> None:
-        rid = _selected_id(self.table)
-        if rid is None:
+        sel = self._selected()
+        if sel is None:
+            return
+        kind, rid = sel
+        if kind == "var":
+            QMessageBox.information(
+                self, "Einmalige Einnahme",
+                "Einmalige (importierte) Einnahmen lassen sich hier nur löschen.")
             return
         item = self.ctx.income.get(rid)
         if not item:
@@ -168,12 +201,16 @@ class _IncomeTab(QWidget):
             self.ctx.notify_changed()
 
     def _delete(self) -> None:
-        rid = _selected_id(self.table)
-        if rid is None:
+        sel = self._selected()
+        if sel is None:
             return
+        kind, rid = sel
         if QMessageBox.question(self, "Löschen", "Diese Einnahme wirklich löschen?") \
                 == QMessageBox.StandardButton.Yes:
-            self.ctx.income.delete(rid)
+            if kind == "var":
+                self.ctx.var_income.delete(rid)
+            else:
+                self.ctx.income.delete(rid)
             self.ctx.notify_changed()
 
 

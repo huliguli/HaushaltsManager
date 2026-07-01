@@ -18,7 +18,7 @@ APP_DISPLAY_NAME = "HaushaltsManager"
 GITHUB_REPO = "huliguli/HaushaltsManager"
 
 # Fallback version; the real value is read from the bundled version.json below.
-_FALLBACK_VERSION = "1.7.0"
+_FALLBACK_VERSION = "1.7.1"
 
 
 def is_frozen() -> bool:

@@ -187,6 +187,35 @@ class VariableExpense:
 
 
 @dataclass
+class VariableIncome:
+    """One-off, dated income (e.g. an imported bank credit).
+
+    Counts only in its own month — never as recurring monthly income.
+    """
+
+    date: str                          # ISO YYYY-MM-DD
+    amount_cents: int = 0
+    source: str = ""
+    id: int | None = None
+
+    @staticmethod
+    def from_row(row) -> "VariableIncome":
+        return VariableIncome(
+            id=row["id"],
+            date=row["date"],
+            amount_cents=row["amount_cents"],
+            source=row["source"] or "",
+        )
+
+    def to_params(self) -> dict:
+        return {
+            "date": self.date,
+            "amount_cents": int(self.amount_cents),
+            "source": self.source or None,
+        }
+
+
+@dataclass
 class Credit:
     name: str
     total_cents: int | None = None
@@ -250,7 +279,8 @@ class MonthlySummary:
 class BudgetOverview:
     """Computed snapshot for the dashboard (not persisted directly)."""
 
-    income_cents: int = 0
+    income_cents: int = 0             # this month: recurring + one-off income
+    recurring_income_cents: int = 0   # recurring only — use for FUTURE projections
     fixed_cents: int = 0
     variable_cents: int = 0
     credits_cents: int = 0            # share of fixed that are loan instalments

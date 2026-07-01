@@ -13,6 +13,7 @@ from modules.models import (
     IncomeSource,
     MonthlySummary,
     VariableExpense,
+    VariableIncome,
 )
 
 
@@ -208,6 +209,52 @@ class VariableExpenseRepository:
             (months,),
         )
         return [(r["ym"], int(r["total"])) for r in reversed(rows)]
+
+
+class VariableIncomeRepository:
+    """One-off, dated income (e.g. imported bank credits).
+
+    Counts only in its booking month — never recurring, so a single transfer
+    cannot inflate the ongoing monthly income.
+    """
+
+    def __init__(self, db: Database) -> None:
+        self.db = db
+
+    @staticmethod
+    def _month_bounds(year: int, month: int) -> tuple[str, str]:
+        import calendar
+        last = calendar.monthrange(year, month)[1]
+        return f"{year:04d}-{month:02d}-01", f"{year:04d}-{month:02d}-{last:02d}"
+
+    def add(self, item: VariableIncome) -> int:
+        return self.db.insert("variable_income", item.to_params())
+
+    def get(self, row_id: int) -> VariableIncome | None:
+        row = self.db.query_one("SELECT * FROM variable_income WHERE id = ?", (row_id,))
+        return VariableIncome.from_row(row) if row else None
+
+    def delete(self, row_id: int) -> None:
+        self.db.delete("variable_income", row_id)
+
+    def total_for_month(self, year: int, month: int) -> int:
+        start, end = self._month_bounds(year, month)
+        row = self.db.query_one(
+            "SELECT COALESCE(SUM(amount_cents), 0) AS total FROM variable_income "
+            "WHERE date >= ? AND date <= ?", (start, end))
+        return int(row["total"]) if row else 0
+
+    def list_for_month(self, year: int, month: int) -> list[VariableIncome]:
+        start, end = self._month_bounds(year, month)
+        rows = self.db.query(
+            "SELECT * FROM variable_income WHERE date >= ? AND date <= ? "
+            "ORDER BY date DESC, id DESC", (start, end))
+        return [VariableIncome.from_row(r) for r in rows]
+
+    def list_recent(self, limit: int = 200) -> list[VariableIncome]:
+        rows = self.db.query(
+            "SELECT * FROM variable_income ORDER BY date DESC, id DESC LIMIT ?", (limit,))
+        return [VariableIncome.from_row(r) for r in rows]
 
 
 class CreditRepository:
