@@ -76,7 +76,7 @@ class _BaseDialog(QDialog):
         root.addLayout(self.grid)
 
         self._error = QLabel("")
-        self._error.setStyleSheet("color: #d6453d; font-size: 12px;")
+        self._error.setObjectName("ErrorText")
         self._error.setWordWrap(True)
         self._error.hide()
         root.addWidget(self._error)

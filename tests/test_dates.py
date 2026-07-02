@@ -5,6 +5,15 @@ from datetime import date
 from modules import dates
 
 
+def test_shift_month_wraps_years():
+    assert dates.shift_month(2026, 12, 1) == (2027, 1)      # forward across year
+    assert dates.shift_month(2025, 1, -1) == (2024, 12)     # backward across year
+    assert dates.shift_month(2026, 6, 0) == (2026, 6)       # no-op
+    assert dates.shift_month(2026, 6, -8) == (2025, 10)     # multi-month back
+    assert dates.shift_month(2026, 3, 24) == (2028, 3)      # two full years forward
+    assert dates.month_name(3) == "März" and dates.month_name(12) == "Dezember"
+
+
 def test_parse_full_dates():
     assert dates.parse_date("14.12.2026") == date(2026, 12, 14)
     assert dates.parse_date("01.08.2028") == date(2028, 8, 1)

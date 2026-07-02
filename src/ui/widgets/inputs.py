@@ -34,7 +34,13 @@ class MoneyLineEdit(QLineEdit):
 
 
 def labelled(label_text: str, widget: QWidget, *, hint: str = "") -> QWidget:
-    """Wrap a widget with a small caption label above it (and optional hint)."""
+    """Wrap a widget with a small caption label above it (and optional hint).
+
+    The caption is also wired to the input for accessibility: a screen reader
+    announces the field's name (and hint) instead of just "text field". Because
+    every dialog/calculator field routes through here, one change makes the whole
+    app's forms navigable without sight (WCAG 1.3.1 / 4.1.2).
+    """
     container = QWidget()
     layout = QVBoxLayout(container)
     layout.setContentsMargins(0, 0, 0, 0)
@@ -42,6 +48,8 @@ def labelled(label_text: str, widget: QWidget, *, hint: str = "") -> QWidget:
 
     caption = QLabel(label_text)
     caption.setObjectName("FieldLabel")
+    caption.setBuddy(widget)
+    widget.setAccessibleName(label_text)
     layout.addWidget(caption)
     layout.addWidget(widget)
 
@@ -50,6 +58,7 @@ def labelled(label_text: str, widget: QWidget, *, hint: str = "") -> QWidget:
         hint_lbl.setObjectName("Faint")
         hint_lbl.setWordWrap(True)
         layout.addWidget(hint_lbl)
+        widget.setAccessibleDescription(hint)
 
     # Expose the inner widget for convenient access.
     container.inner = widget  # type: ignore[attr-defined]

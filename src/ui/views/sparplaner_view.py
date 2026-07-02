@@ -153,7 +153,7 @@ class SparplanerView(BaseView):
         self._goal_row = labelled("Sparziel", self.goal_field)
 
         self.error = QLabel("")
-        self.error.setStyleSheet("color: #d6453d; font-size: 12px;")
+        self.error.setObjectName("ErrorText")
         self.error.setWordWrap(True)
         self.error.hide()
 
@@ -221,7 +221,9 @@ class SparplanerView(BaseView):
             return self._show_error(str(exc))
 
         c = self.ctx.colors
-        disposable = self.ctx.overview().after_all_cents
+        # Feasibility is a durable question ("can I keep saving this every month?"),
+        # so judge it against the recurring surplus, not a one-off-inflated month.
+        disposable = self.ctx.overview().recurring_after_all_cents
         remaining = disposable - res.monthly_cents
         status, label = _feasibility(res.monthly_cents, disposable)
         badge_color = {"gut": c["green"], "knapp": c["amber"], "riskant": c["red"]}[status]

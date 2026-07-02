@@ -20,6 +20,21 @@ jobs:
       - name: Repository auschecken
         uses: actions/checkout@v4
 
+      # Guard against a forgotten version bump: the installed app reads its own
+      # version from the bundled version.json, so if the release tag is newer than
+      # version.json the updater would offer the same update forever (a loop).
+      - name: Version prüfen (Release-Tag == version.json)
+        if: github.event_name == 'release'
+        shell: pwsh
+        run: |
+          $ver = (Get-Content version.json -Raw | ConvertFrom-Json).version
+          $tag = "${{ github.event.release.tag_name }}" -replace '^v', ''
+          if ($ver -ne $tag) {
+            Write-Error "version.json ($ver) passt nicht zum Release-Tag ($tag) - bitte version.json anheben."
+            exit 1
+          }
+          Write-Host "Version ok: $ver"
+
       - name: Python einrichten
         uses: actions/setup-python@v5
         with:

@@ -142,7 +142,7 @@ class _CalcTab(QWidget):
         root.addWidget(results_scroll, 1)
 
         self.error = QLabel("")
-        self.error.setStyleSheet("color: #d6453d; font-size: 12px;")
+        self.error.setObjectName("ErrorText")
         self.error.setWordWrap(True)
         self.error.hide()
         self.form.addWidget(self.error)
@@ -447,9 +447,11 @@ class _AutoTab(_CalcTab):
             "Reifen-Rücklage": self.reifen.cents() or 0,
         }
 
-        # Budget basis: the live "Verbleibend" from the dashboard, plus any
-        # current car fixed costs that free up when the car is replaced.
-        disposable = self.ctx.overview().after_all_cents
+        # Budget basis: the RECURRING monthly surplus (not after_all, which a
+        # one-off credit this month would inflate), plus any current car fixed
+        # costs that free up when the car is replaced. A car is a multi-year
+        # commitment, so it must be judged against durable income only.
+        disposable = self.ctx.overview().recurring_after_all_cents
         current_auto = sum(
             c.amount_cents for c in self.ctx.fixed.list() if c.category == "Auto")
         try:

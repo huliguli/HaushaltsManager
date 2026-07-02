@@ -233,9 +233,9 @@ class EinstellungenView(BaseView):
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No) != QMessageBox.StandardButton.Yes:
             return
-        for table in ("variable_expenses", "fixed_costs", "income_sources",
-                      "credits", "monthly_summary"):
-            self.ctx.db.execute(f"DELETE FROM {table}")
+        # Clears EVERY financial table (incl. one-off income, budgets, snapshots
+        # and the bank-import log/rules) so no orphaned rows survive the reset.
+        self.ctx.db.wipe_financial_data()
         self.ctx.notify_changed()
         QMessageBox.information(self, "Gelöscht", "Alle Finanzdaten wurden entfernt.")
 

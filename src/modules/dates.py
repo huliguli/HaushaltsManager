@@ -13,6 +13,28 @@ from datetime import date, datetime
 
 ISO_FMT = "%Y-%m-%d"
 
+# Full German month names — the single source of truth for month labels across
+# the UI (dashboard, month navigator, trends). Avoids the several private copies
+# that used to drift apart.
+MONTHS_DE = ["Januar", "Februar", "März", "April", "Mai", "Juni", "Juli",
+             "August", "September", "Oktober", "November", "Dezember"]
+
+
+def month_name(month: int) -> str:
+    """German month name for a 1-based month number."""
+    return MONTHS_DE[month - 1]
+
+
+def shift_month(year: int, month: int, delta: int) -> tuple[int, int]:
+    """Add ``delta`` whole months to (year, month), handling the year wrap.
+
+    The single implementation of the wrap-around arithmetic that the month
+    navigators and the dashboard/household views all share. Example: shifting
+    December 2026 by +1 gives (2027, 1); January 2025 by -1 gives (2024, 12).
+    """
+    m = month - 1 + delta
+    return year + m // 12, m % 12 + 1
+
 
 def today() -> date:
     return date.today()

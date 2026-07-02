@@ -16,6 +16,7 @@ from PyQt6.QtWidgets import (
     QHBoxLayout,
     QHeaderView,
     QLabel,
+    QLineEdit,
     QMessageBox,
     QPushButton,
     QTableWidget,
@@ -27,6 +28,7 @@ from PyQt6.QtWidgets import (
 
 from modules import dates
 from modules.models import (
+    EXPENSE_CATEGORIES,
     FIXED_CATEGORIES,
     INCOME_TYPE_LABELS,
 )
@@ -42,6 +44,7 @@ from ui.widgets.common import (
     muted,
     pill_cell,
 )
+from ui.widgets.month_nav import MonthNavigator
 
 _ROLE_ID = Qt.ItemDataRole.UserRole
 
@@ -57,6 +60,25 @@ def _text_item(text: str) -> QTableWidgetItem:
     item = QTableWidgetItem(text)
     item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
     return item
+
+
+class _SortItem(QTableWidgetItem):
+    """Read-only cell that sorts by an explicit key (ISO date, or integer cents)
+    rather than by its displayed German string, so column-click sorting is
+    numerically/chronologically correct."""
+
+    def __init__(self, text: str, sort_key, *, right: bool = False) -> None:
+        super().__init__(text)
+        self._key = sort_key
+        self.setFlags(self.flags() & ~Qt.ItemFlag.ItemIsEditable)
+        if right:
+            self.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+
+    def __lt__(self, other: "QTableWidgetItem") -> bool:
+        other_key = getattr(other, "_key", None)
+        if other_key is not None:
+            return self._key < other_key
+        return super().__lt__(other)
 
 
 def _make_table(headers: list[str]) -> QTableWidget:
@@ -332,9 +354,6 @@ class _FixedTab(QWidget):
 
 # --- Variable expenses tab -------------------------------------------------
 class _ExpensesTab(QWidget):
-    _MONTHS_DE = ["Januar", "Februar", "März", "April", "Mai", "Juni", "Juli",
-                  "August", "September", "Oktober", "November", "Dezember"]
-
     def __init__(self, ctx) -> None:
         super().__init__()
         self.ctx = ctx
@@ -345,60 +364,108 @@ class _ExpensesTab(QWidget):
         layout.setContentsMargins(2, 14, 2, 2)
         layout.setSpacing(12)
 
+        # Row 1: month navigator + running total.
         nav = QHBoxLayout()
-        prev = QPushButton("◀")
-        prev.setObjectName("Ghost")
-        prev.setFixedWidth(40)
-        prev.setAccessibleName("Vorheriger Monat")
-        prev.setToolTip("Vorheriger Monat")
-        nxt = QPushButton("▶")
-        nxt.setObjectName("Ghost")
-        nxt.setFixedWidth(40)
-        nxt.setAccessibleName("Nächster Monat")
-        nxt.setToolTip("Nächster Monat")
-        self.month_label = QLabel()
-        self.month_label.setObjectName("H2")
-        self.month_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.month_label.setMinimumWidth(180)
-        prev.clicked.connect(lambda: self._shift(-1))
-        nxt.clicked.connect(lambda: self._shift(1))
-        nav.addWidget(prev)
-        nav.addWidget(self.month_label)
-        nav.addWidget(nxt)
+        self._nav = MonthNavigator(self.ctx.colors, self._year, self._month, allow_future=True)
+        self._nav.month_changed.connect(self._on_month)
+        nav.addWidget(self._nav)
         nav.addStretch(1)
         self.total = QLabel()
         self.total.setObjectName("H2")
         nav.addWidget(self.total)
         layout.addLayout(nav)
 
+        # Row 2: cross-month search + category filter. While either is active the
+        # table shows matches across ALL months (answering "what did I spend at
+        # X this year?"); when both are cleared it returns to the single-month view.
+        filters = QHBoxLayout()
+        filters.setSpacing(10)
+        self.search = QLineEdit()
+        self.search.setPlaceholderText("Suchen (Beschreibung, über alle Monate) …")
+        self.search.setClearButtonEnabled(True)
+        self.search.setAccessibleName("Ausgaben durchsuchen")
+        self.search.textChanged.connect(self._on_filter_changed)
+        self.cat_filter = QComboBox()
+        self.cat_filter.addItem("Alle Kategorien", None)
+        for cat in EXPENSE_CATEGORIES:
+            self.cat_filter.addItem(cat, cat)
+        self.cat_filter.setAccessibleName("Nach Kategorie filtern")
+        self.cat_filter.currentIndexChanged.connect(self._on_filter_changed)
+        self._reset_btn = QPushButton("Zurücksetzen")
+        self._reset_btn.setObjectName("Ghost")
+        self._reset_btn.clicked.connect(self._reset_filters)
+        filters.addWidget(QLabel("Filter:"))
+        filters.addWidget(self.search, 1)
+        filters.addWidget(self.cat_filter)
+        filters.addWidget(self._reset_btn)
+        layout.addLayout(filters)
+
         bar, add, edit, delete = _toolbar(QLabel(""), "+ Ausgabe")
         layout.addWidget(bar)
 
         self.table = _make_table(["Datum", "Kategorie", "Beschreibung", "Betrag"])
+        self.table.setSortingEnabled(True)   # click a header to sort (correct numeric/date order)
         self.table.doubleClicked.connect(lambda: self._edit())
         self._panel = TablePanel(
-            self.table, "Keine Ausgaben in diesem Monat.",
-            "Erfasse über „+ Ausgabe“ deine erste Ausgabe – oder blättere zu einem anderen Monat.")
+            self.table, "Keine Ausgaben gefunden.",
+            "Erfasse über „+ Ausgabe“ eine Ausgabe – oder ändere Monat, Suche oder Filter.")
         layout.addWidget(self._panel, 1)
 
         add.clicked.connect(self._add)
         edit.clicked.connect(self._edit)
         delete.clicked.connect(self._delete)
 
-    def _shift(self, delta: int) -> None:
-        m = self._month - 1 + delta
-        self._year += m // 12
-        self._month = m % 12 + 1
+    def _on_month(self, year: int, month: int) -> None:
+        self._year, self._month = year, month
         self.refresh()
 
+    def _on_filter_changed(self, *_args) -> None:
+        self.refresh()
+
+    def _reset_filters(self) -> None:
+        blocked = self.search.blockSignals(True)
+        self.search.clear()
+        self.search.blockSignals(blocked)
+        self.cat_filter.setCurrentIndex(0)
+        self.refresh()
+
+    def _is_filtering(self) -> bool:
+        return bool(self.search.text().strip()) or self.cat_filter.currentData() is not None
+
+    def _filtered_items(self) -> list:
+        """Expenses across all months matching the search text and/or category."""
+        term = self.search.text().strip().lower()
+        cat = self.cat_filter.currentData()
+        out = []
+        for it in self.ctx.expenses.list_recent(5000):
+            if cat and it.category != cat:
+                continue
+            if term and term not in (it.description or "").lower():
+                continue
+            out.append(it)
+        return out
+
     def refresh(self) -> None:
-        self.month_label.setText(f"{self._MONTHS_DE[self._month - 1]} {self._year}")
-        # Month view: one-off expenses of this month + every recurring expense
-        # that has started by now (materialised on the fly).
-        items = self.ctx.expenses.list_for_month(self._year, self._month)
+        self._nav.refresh_icons(self.ctx.colors)   # keep chevrons themed
+        filtering = self._is_filtering()
+        # When filtering across months, the month navigator does not apply.
+        self._nav.setEnabled(not filtering)
+        if filtering:
+            items = self._filtered_items()
+            total = sum(it.amount_cents for it in items)
+            self.total.setText(f"{len(items)} Treffer · Summe {format_eur(total)}")
+        else:
+            # Month view: one-off expenses of this month + every recurring expense
+            # that has started by now (materialised on the fly).
+            items = self.ctx.expenses.list_for_month(self._year, self._month)
+            self.total.setText(
+                f"Summe: {format_eur(self.ctx.expenses.total_for_month(self._year, self._month))}")
+
+        # Sorting must be off while filling, or inserted rows reshuffle mid-loop.
+        self.table.setSortingEnabled(False)
         self.table.setRowCount(len(items))
         for r, it in enumerate(items):
-            d = _text_item(dates.format_date(it.date))
+            d = _SortItem(dates.format_date(it.date), it.date)   # sort by ISO date
             d.setData(_ROLE_ID, it.id)
             self.table.setItem(r, 0, d)
             self.table.setItem(r, 1, _text_item(it.category))
@@ -406,15 +473,14 @@ class _ExpensesTab(QWidget):
             if it.recurring:                       # mark the monthly-recurring rows
                 desc = f"↻ {desc}" if desc else "↻ monatlich"
             self.table.setItem(r, 2, _text_item(desc))
-            self.table.setItem(r, 3, _money_item(it.amount_cents))
+            self.table.setItem(r, 3, _SortItem(format_eur(it.amount_cents), it.amount_cents, right=True))
+        self.table.setSortingEnabled(True)
         header = self.table.horizontalHeader()
         header.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
         for col in (0, 1, 3):
             header.setSectionResizeMode(col, QHeaderView.ResizeMode.ResizeToContents)
         align_table_headers(self.table, right_cols=(3,))
         self._panel.update_state()
-        self.total.setText(
-            f"Summe: {format_eur(self.ctx.expenses.total_for_month(self._year, self._month))}")
 
     def _add(self) -> None:
         dlg = ExpenseDialog(parent=self)

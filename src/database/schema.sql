@@ -137,10 +137,27 @@ CREATE TABLE IF NOT EXISTS bank_profiles (
     UNIQUE (name)
 );
 
+-- --- Category budgets (schema v3): optional monthly target per category ----
+-- One target limit (integer cents) per expense category. Purely additive; a
+-- missing row simply means "no budget set" for that category. The dashboard
+-- and the trends view show spent-vs-limit with a traffic-light.
+CREATE TABLE IF NOT EXISTS category_budgets (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    category     TEXT    NOT NULL,
+    limit_cents  INTEGER NOT NULL DEFAULT 0,
+    created_at   TEXT    NOT NULL DEFAULT (datetime('now')),
+    updated_at   TEXT    NOT NULL DEFAULT (datetime('now')),
+    UNIQUE (category)
+);
+
 -- --- Indexes ---------------------------------------------------------------
 CREATE INDEX IF NOT EXISTS idx_var_date     ON variable_expenses(date);
 CREATE INDEX IF NOT EXISTS idx_varincome_date ON variable_income(date);
 CREATE INDEX IF NOT EXISTS idx_var_category ON variable_expenses(category);
+-- NOTE: the partial index on variable_expenses(recurring) is created in
+-- Database._migrate (NOT here) because on a pre-1.4 database the recurring
+-- column is added by an ALTER that runs AFTER this script — an index here would
+-- reference a not-yet-existing column and fail on upgrade.
 CREATE INDEX IF NOT EXISTS idx_fixed_active ON fixed_costs(active);
 CREATE INDEX IF NOT EXISTS idx_credit_status ON credits(status);
 CREATE INDEX IF NOT EXISTS idx_import_log_hash    ON import_log(tx_hash);

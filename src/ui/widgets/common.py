@@ -80,11 +80,15 @@ class StatCard(QFrame):
         self._title.setObjectName("CardTitle")
         self._value = QLabel("–")
         self._value.setObjectName("CardValue")
+        self._delta = QLabel("")
+        self._delta.setObjectName("CardHint")
+        self._delta.setVisible(False)
         self._hint = QLabel("")
         self._hint.setObjectName("CardHint")
         self._hint.setWordWrap(True)
         body.addWidget(self._title)
         body.addWidget(self._value)
+        body.addWidget(self._delta)
         body.addWidget(self._hint)
         body.addStretch(1)
         root.addLayout(body, 1)
@@ -98,6 +102,15 @@ class StatCard(QFrame):
 
     def set_hint(self, text: str) -> None:
         self._hint.setText(text)
+
+    def set_delta(self, text: str, color: str) -> None:
+        """Show a small coloured change-vs-previous line (e.g. '▲ 5,2 % ggü. Vormonat')."""
+        if not text:
+            self._delta.setVisible(False)
+            return
+        self._delta.setText(text)
+        self._delta.setStyleSheet(f"color: {color}; font-size: 12px; font-weight: 600;")
+        self._delta.setVisible(True)
 
     @staticmethod
     def _stripe_qss(color: str) -> str:

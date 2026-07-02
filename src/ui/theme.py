@@ -231,6 +231,9 @@ QLabel#H1 {{ font-family: {FONT_HEADING}; font-size: 24px; font-weight: 700; }}
 QLabel#H2 {{ font-family: {FONT_HEADING}; font-size: 17px; font-weight: 700; }}
 QLabel#Muted {{ color: {c['text_muted']}; }}
 QLabel#Faint {{ color: {c['text_faint']}; font-size: 12px; }}
+/* Inline validation errors: the theme red clears AA on both surfaces and, unlike
+   a hard-coded hex, re-colours with the theme (light >=5.5:1, dark >=5:1). */
+QLabel#ErrorText {{ color: {c['red']}; font-size: 12px; }}
 QLabel#FieldLabel {{ color: {c['text_muted']}; font-size: 12px; font-weight: 600; }}
 
 /* ---- Buttons ---- */

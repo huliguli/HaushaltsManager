@@ -43,6 +43,24 @@ def test_excel_export_and_reload(tmp_path):
     assert all(not (t or "").startswith("=") for t in texts)  # nothing stays a formula
 
 
+def test_excel_annual_saving_uses_recurring_income(tmp_path):
+    # Regression: the "pro Jahr ansparbar" note must project the RECURRING
+    # surplus, never the one-off-inflated month (same class as the v1.7.1 bug).
+    overview = BudgetOverview(
+        income_cents=500_000,            # includes a fat one-off credit this month
+        recurring_income_cents=200_000,  # the real repeating income
+        fixed_cents=95_000, variable_cents=68_000)
+    out = excel_io.export_workbook(
+        tmp_path / "annual.xlsx", income=[], fixed_costs=[], expenses=[],
+        credits=[], overview=overview)
+    ws = load_workbook(out)["Übersicht"]
+    note = next(c.value for row in ws.iter_rows() for c in row
+                if isinstance(c.value, str) and "pro Jahr ansparbar" in c.value)
+    # recurring_after_all = 200000-95000-68000 = 37000 cents -> *12 = 4.440,00 €.
+    assert "4.440,00" in note
+    assert "40.440,00" not in note   # would be the wrong (one-off-inflated) figure
+
+
 def test_excel_import_mapping_and_rows(tmp_path):
     overview, fixed, expenses, credits = _sample()
     path = excel_io.export_workbook(

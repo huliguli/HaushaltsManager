@@ -1,6 +1,6 @@
 """Tests for the database layer and repositories (temp DB, no app data dir)."""
 
-from modules.db_handler.database import Database
+from modules.db_handler.database import CURRENT_SCHEMA_VERSION, Database
 from modules.db_handler.repositories import (
     CreditRepository,
     FixedCostRepository,
@@ -189,7 +189,9 @@ def test_migration_renames_expense_categories_v2(tmp_path):
     assert cats == ["Auto & Tanken", "Lebensmittel"]   # renamed + unrelated kept
     assert rule_cat == "Auto & Tanken"                 # learned rule renamed too
     assert len(cats) == 2                              # no data lost
-    assert version == 2
+    # The v2 rename ran; the version then advances to the current schema level
+    # (later additive migrations bump it further from the planted v1).
+    assert version == CURRENT_SCHEMA_VERSION
     db2.close()
 
 

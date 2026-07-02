@@ -20,9 +20,9 @@ from PyQt6.QtWidgets import (
 from modules import dates
 from modules.bank_import import parsers as bank_parsers
 from modules.bank_import.categorize import Categorizer
-from modules.bank_import.model import normalize, transaction_hash
+from modules.bank_import.commit import commit_transactions
+from modules.bank_import.model import transaction_hash
 from modules.file_handler import excel_io, pdf_import, pdf_report
-from modules.models import VariableExpense, VariableIncome
 from ui import icons
 from ui.bank_import_dialogs import BankCsvMappingDialog, BankReviewDialog
 from ui.import_dialogs import MappingDialog, PdfImportDialog
@@ -234,38 +234,14 @@ class ImportExportView(BaseView):
         return bank_parsers.parse_csv(rows, dlg.mapping())
 
     def _commit_bank(self, transactions, skipped: int) -> None:
-        """Write confirmed transactions, learn rules and log them for de-dup."""
-        today_iso = dates.to_iso(dates.today())
-        n_exp = n_inc = 0
-        for t in transactions:
-            if t.is_income:
-                # Imported credits are ONE-OFF income, booked to their statement
-                # month — NOT a recurring income source. A single transfer (e.g.
-                # someone paying you back for food) must never inflate the ongoing
-                # monthly income; it counts only in its month (see compute_overview).
-                self.ctx.var_income.add(VariableIncome(
-                    date=t.booking_date or today_iso, amount_cents=t.abs_cents,
-                    source=(t.payee or t.purpose or "Einnahme")[:80]))
-                n_inc += 1
-            else:
-                # Imported transactions are one-off, dated to their actual
-                # booking month (from the statement) — NOT to "this month".
-                # recurring=False is set explicitly and on purpose: an imported
-                # item must never be carried into the next month's view, never
-                # become a fixed cost and never feed the fixed-cost timeline.
-                # Only user-defined fixed costs (rent, Kostgeld, subscriptions)
-                # recur; a merchant seen monthly is still booked one month at a
-                # time. See _recurring_occurrences / *_for_range (recurring=0).
-                self.ctx.expenses.add(VariableExpense(
-                    date=t.booking_date or today_iso, amount_cents=t.abs_cents,
-                    category=t.category or "Sonstiges",
-                    description=(t.payee or t.purpose or "")[:120],
-                    recurring=False))
-                n_exp += 1
-                if t.payee:  # learn: this payee -> this category for next time
-                    self.ctx.import_rules.upsert(
-                        normalize(t.payee), t.category or "Sonstiges", learned=True)
-            self.ctx.import_log.add(transaction_hash(t), t.booking_date, t.amount_cents)
+        """Write confirmed transactions, learn rules and log them for de-dup.
+
+        The routing lives in the Qt-free :func:`commit_transactions` so it can be
+        regression-tested (imported credit -> one-off income, never recurring).
+        """
+        n_exp, n_inc = commit_transactions(
+            transactions, self.ctx.expenses, self.ctx.var_income,
+            self.ctx.import_rules, self.ctx.import_log)
         self.ctx.notify_changed()
         QMessageBox.information(
             self, "Import abgeschlossen",

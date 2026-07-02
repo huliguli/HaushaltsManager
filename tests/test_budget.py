@@ -64,6 +64,26 @@ def test_compute_overview_one_time_income_only_in_its_month(tmp_path):
     db.close()
 
 
+def test_recurring_after_properties_ignore_one_off_income(tmp_path):
+    # The recurring_after_* properties power long-term decisions (annual saving
+    # projection, car/savings feasibility): a one-off credit must not lift them.
+    from modules.db_handler.repositories import VariableIncomeRepository
+    from modules.models import VariableIncome
+    db, income, fixed, expenses = _repos(tmp_path)
+    var_income = VariableIncomeRepository(db)
+    income.add(IncomeSource("Job", 200_000, "teilzeit"))
+    fixed.add(FixedCost("Miete", 80_000, "Wohnen"))
+    expenses.add(VariableExpense("2026-06-05", 5_000, "Lebensmittel"))
+    var_income.add(VariableIncome("2026-06-10", 300_000, "Einmal-Gutschrift"))
+
+    ov = budget.compute_overview(income, fixed, expenses, 2026, 6, var_income_repo=var_income)
+    # after_all reflects the fat one-off month; recurring_after_all does NOT.
+    assert ov.after_all_cents == 500_000 - 80_000 - 5_000
+    assert ov.recurring_after_fixed_cents == 200_000 - 80_000
+    assert ov.recurring_after_all_cents == 200_000 - 80_000 - 5_000
+    db.close()
+
+
 def test_compute_overview_materialises_recurring(tmp_path):
     # The recurring path of compute_overview: a recurring variable expense that
     # started in an earlier month is materialised into the requested month and

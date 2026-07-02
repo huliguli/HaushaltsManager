@@ -1,9 +1,11 @@
-"""Dashboard: month summary cards, availability figures, fixed-cost timeline
-and an expense breakdown chart.
+"""Dashboard: navigable month summary, availability, category budgets, breakdown
+chart and the fixed-cost drop-off timeline.
 
 The view rebuilds its body on every ``refresh()`` so it always reflects the
-latest data and the current theme. Numbers come from the budget service and the
-timeline calculator; nothing is computed inline here.
+latest data and the current theme. The month navigator lets the user step back
+through history; every card then shows the selected month plus its change versus
+the previous month. Numbers come from the budget service and the timeline
+calculator; nothing is computed inline here.
 """
 
 from __future__ import annotations
@@ -16,25 +18,30 @@ from PyQt6.QtWidgets import (
     QGridLayout,
     QHBoxLayout,
     QLabel,
+    QProgressBar,
+    QPushButton,
     QScrollArea,
     QVBoxLayout,
     QWidget,
 )
 
+from modules import dates
 from modules.calculator import timeline
 from modules.money import format_eur, format_eur_short
 from ui import theme
+from ui.budget_dialog import CategoryBudgetDialog
 from ui.views.base_view import BaseView
 from ui.widgets.chart_canvas import ChartCanvas
 from ui.widgets.common import StatCard, clear_layout, heading, muted
-
-_MONTHS_DE = ["Januar", "Februar", "März", "April", "Mai", "Juni", "Juli",
-              "August", "September", "Oktober", "November", "Dezember"]
+from ui.widgets.month_nav import MonthNavigator
 
 
 class DashboardView(BaseView):
     def __init__(self, ctx) -> None:
         super().__init__(ctx)
+        today = date.today()
+        self._year, self._month = today.year, today.month
+
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
 
@@ -51,29 +58,58 @@ class DashboardView(BaseView):
         self._body.setSpacing(18)
         scroll.setWidget(self._container)
 
+    # -- month selection ----------------------------------------------------
+    def _on_month(self, year: int, month: int) -> None:
+        self._year, self._month = year, month
+        self.refresh()
+
+    def _is_current_month(self) -> bool:
+        today = date.today()
+        return (self._year, self._month) == (today.year, today.month)
+
+    def _prev_month(self) -> tuple[int, int]:
+        return dates.shift_month(self._year, self._month, -1)
+
     # -- build --------------------------------------------------------------
     def refresh(self) -> None:
         clear_layout(self._body)
         c = self.ctx.colors
-        today = date.today()
-        ov = self.ctx.overview(today.year, today.month)
+        ov = self.ctx.overview(self._year, self._month)
+        py, pm = self._prev_month()
+        prev = self.ctx.overview(py, pm)
 
         header = QHBoxLayout()
         title_box = QVBoxLayout()
         title_box.setSpacing(2)
         title_box.addWidget(heading("Dashboard"))
-        title_box.addWidget(muted(f"Monatsübersicht · {_MONTHS_DE[today.month - 1]} {today.year}"))
+        title_box.addWidget(muted("Monatsübersicht mit Vergleich zum Vormonat."))
         header.addLayout(title_box)
         header.addStretch(1)
+        nav = MonthNavigator(c, self._year, self._month, allow_future=False)
+        nav.month_changed.connect(self._on_month)
+        header.addWidget(nav)
         self._body.addLayout(header)
 
-        self._body.addWidget(self._stat_row(ov, c))
+        self._body.addWidget(self._stat_row(ov, prev, c))
         self._body.addWidget(self._availability_and_chart(ov, c))
+        budget_panel = self._budget_panel(ov, c)
+        if budget_panel is not None:
+            self._body.addWidget(budget_panel)
         self._body.addWidget(self._timeline_panel(ov, c))
         self._body.addStretch(1)
 
     # -- sections -----------------------------------------------------------
-    def _stat_row(self, ov, c) -> QWidget:
+    def _delta(self, cur: int, prev: int, c, *, good_up: bool) -> tuple[str, str]:
+        """(text, colour) for a change-vs-previous line; empty text when equal."""
+        d = cur - prev
+        if d == 0:
+            return "", c["text_faint"]
+        arrow = "▲" if d > 0 else "▼"
+        good = (d > 0) == good_up
+        color = c["green"] if good else c["red"]
+        return f"{arrow} {format_eur(abs(d))} ggü. Vormonat", color
+
+    def _stat_row(self, ov, prev, c) -> QWidget:
         row = QWidget()
         layout = QHBoxLayout(row)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -82,6 +118,7 @@ class DashboardView(BaseView):
         income = StatCard("Einnahmen", c["blue"])
         income.set_value(format_eur(ov.income_cents), c["text"])
         income.set_hint("Aktive Einnahmequellen")
+        income.set_delta(*self._delta(ov.income_cents, prev.income_cents, c, good_up=True))
 
         fixed = StatCard("Fixkosten", c["amber"])
         fixed.set_value(format_eur(ov.fixed_cents), c["text"])
@@ -90,12 +127,14 @@ class DashboardView(BaseView):
         variable = StatCard("Variable Ausgaben", c["grey"])
         variable.set_value(format_eur(ov.variable_cents), c["text"])
         variable.set_hint("Diesen Monat erfasst")
+        variable.set_delta(*self._delta(ov.variable_cents, prev.variable_cents, c, good_up=False))
 
         remaining = StatCard("Verbleibend", c["green"])
         rem = ov.after_all_cents
         remaining.set_accent(c["green"] if rem >= 0 else c["red"])
         remaining.set_value(format_eur(rem), c["green"] if rem >= 0 else c["red"])
         remaining.set_hint("Nach Fix- und variablen Kosten")
+        remaining.set_delta(*self._delta(rem, prev.after_all_cents, c, good_up=True))
 
         for card in (income, fixed, variable, remaining):
             layout.addWidget(card, 1)
@@ -141,6 +180,7 @@ class DashboardView(BaseView):
         cl.addWidget(self._panel_title("Ausgaben nach Kategorie"))
         canvas = ChartCanvas(c, width=4.2, height=2.6)
         canvas.setMinimumHeight(230)
+        canvas.setAccessibleName("Ausgaben nach Kategorie in diesem Monat")
         by_cat = ov.expenses_by_category
         if by_cat:
             labels = list(by_cat.keys())
@@ -149,6 +189,8 @@ class DashboardView(BaseView):
             slice_colors = [cycle[i % len(cycle)] for i in range(len(labels))]
             canvas.donut(labels, values, slice_colors,
                          center_text=format_eur_short(ov.variable_cents))
+            top = ", ".join(f"{k} {format_eur(v)}" for k, v in list(by_cat.items())[:3])
+            canvas.setAccessibleDescription(f"Größte Kategorien: {top}.")
         else:
             canvas.donut([], [], [])
         cl.addWidget(canvas)
@@ -158,6 +200,80 @@ class DashboardView(BaseView):
             cl.addWidget(legend)
         layout.addWidget(chart_panel, 1)
         return row
+
+    # -- category budgets ---------------------------------------------------
+    def _budget_panel(self, ov, c) -> QWidget | None:
+        """Progress bars of spend vs. monthly limit; only for budgeted categories.
+
+        Returns ``None`` on a non-current month with no budgets set, so past
+        months are not cluttered with an empty budgets card.
+        """
+        budgets = self.ctx.budgets.all()
+        panel = QFrame()
+        panel.setObjectName("Card")
+        pl = QVBoxLayout(panel)
+        pl.setContentsMargins(22, 20, 22, 20)
+        pl.setSpacing(12)
+
+        head = QHBoxLayout()
+        head.addWidget(self._panel_title("Budgets"))
+        head.addStretch(1)
+        edit = QPushButton("Budgets festlegen" if not budgets else "Bearbeiten")
+        edit.setObjectName("Link")
+        edit.setCursor(Qt.CursorShape.PointingHandCursor)
+        edit.clicked.connect(self._open_budgets)
+        head.addWidget(edit)
+        pl.addLayout(head)
+
+        if not budgets:
+            hint = QLabel("Lege Monatslimits pro Kategorie fest, um Ausgaben im Blick zu behalten.")
+            hint.setObjectName("Faint")
+            hint.setWordWrap(True)
+            pl.addWidget(hint)
+            return panel
+
+        for cat in sorted(budgets, key=lambda k: budgets[k], reverse=True):
+            limit = budgets[cat]
+            spent = ov.expenses_by_category.get(cat, 0)
+            pl.addWidget(self._budget_row(cat, spent, limit, c))
+        return panel
+
+    def _budget_row(self, cat: str, spent: int, limit: int, c) -> QWidget:
+        wrap = QWidget()
+        box = QVBoxLayout(wrap)
+        box.setContentsMargins(0, 0, 0, 0)
+        box.setSpacing(4)
+
+        ratio = spent / limit if limit else 0
+        key = "green" if ratio < 0.8 else ("amber" if ratio < 1.0 else "red")
+        color = theme.ampel_color(key, c)
+
+        top = QHBoxLayout()
+        name = QLabel(cat)
+        name.setObjectName("Muted")
+        pct = QLabel(f"{format_eur(spent)} / {format_eur(limit)} · {round(ratio * 100)} %")
+        pct.setStyleSheet(f"color: {color}; font-weight: 600;")
+        pct.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        top.addWidget(name)
+        top.addStretch(1)
+        top.addWidget(pct)
+        box.addLayout(top)
+
+        bar = QProgressBar()
+        bar.setTextVisible(False)
+        bar.setFixedHeight(8)
+        bar.setRange(0, max(1, limit))
+        bar.setValue(min(spent, limit))
+        bar.setAccessibleName(f"Budget {cat}: {round(ratio * 100)} Prozent verbraucht")
+        bar.setStyleSheet(
+            f"QProgressBar {{ background: {c['surface_3']}; border: none; border-radius: 4px; }}"
+            f"QProgressBar::chunk {{ background: {color}; border-radius: 4px; }}")
+        box.addWidget(bar)
+        return wrap
+
+    def _open_budgets(self) -> None:
+        if CategoryBudgetDialog(self.ctx, self).exec():
+            self.ctx.notify_changed()
 
     def _timeline_panel(self, ov, c) -> QWidget:
         panel = QFrame()

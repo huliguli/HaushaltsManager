@@ -121,7 +121,7 @@ class BankCsvMappingDialog(QDialog):
         root.addWidget(preview, 1)
 
         self._error = QLabel("")
-        self._error.setStyleSheet("color: #d6453d;")
+        self._error.setObjectName("ErrorText")
         self._error.hide()
         root.addWidget(self._error)
 

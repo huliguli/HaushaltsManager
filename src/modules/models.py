@@ -276,6 +276,23 @@ class MonthlySummary:
 
 
 @dataclass
+class CategoryBudget:
+    """Optional monthly spending target (integer cents) for one expense category."""
+
+    category: str
+    limit_cents: int = 0
+    id: int | None = None
+
+    @staticmethod
+    def from_row(row) -> "CategoryBudget":
+        return CategoryBudget(
+            id=row["id"],
+            category=row["category"],
+            limit_cents=row["limit_cents"],
+        )
+
+
+@dataclass
 class BudgetOverview:
     """Computed snapshot for the dashboard (not persisted directly)."""
 
@@ -295,3 +312,18 @@ class BudgetOverview:
     def after_all_cents(self) -> int:
         """Disposable income after fixed *and* variable spending."""
         return self.income_cents - self.fixed_cents - self.variable_cents
+
+    @property
+    def recurring_after_fixed_cents(self) -> int:
+        """Like :attr:`after_fixed_cents` but on the *recurring* income only.
+
+        Use this for long-term / repeating decisions (annual projections, car or
+        savings feasibility): a one-off credit booked this month must not lift a
+        budget that is meant to hold every month.
+        """
+        return self.recurring_income_cents - self.fixed_cents
+
+    @property
+    def recurring_after_all_cents(self) -> int:
+        """Recurring income minus fixed *and* this month's variable spending."""
+        return self.recurring_income_cents - self.fixed_cents - self.variable_cents

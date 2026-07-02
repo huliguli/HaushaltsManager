@@ -17,7 +17,25 @@ from modules.logging_setup import get_logger
 
 _log = get_logger("db")
 
-CURRENT_SCHEMA_VERSION = 2
+CURRENT_SCHEMA_VERSION = 3
+
+# Every table that holds user-entered or imported financial data. The single
+# source of truth for the "delete all data" reset — a new table must be added
+# here so the reset can never leave orphaned rows behind (schema_version and the
+# UI-only key/value settings table are intentionally excluded; the reset clears
+# data, not the schema or the theme/window preferences).
+WIPE_TABLES = (
+    "variable_expenses",
+    "variable_income",
+    "fixed_costs",
+    "income_sources",
+    "credits",
+    "monthly_summary",
+    "category_budgets",
+    "import_rules",
+    "import_log",
+    "bank_profiles",
+)
 
 # Schema v2 (v1.6.0): the expense taxonomy was refined into finer, better-named
 # categories. Legacy rows still carry the old short names, so map each old name
@@ -82,7 +100,43 @@ class Database:
                 "ALTER TABLE variable_expenses ADD COLUMN recurring INTEGER NOT NULL DEFAULT 0")
             self.conn.commit()
             self._column_cache.pop("variable_expenses", None)
+        # Partial index for the recurring-template scan. Created here, after the
+        # recurring column is guaranteed to exist (the ALTER above runs after
+        # schema.sql), so a pre-1.4 upgrade never indexes a missing column.
+        self.conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_var_recurring "
+            "ON variable_expenses(recurring) WHERE recurring = 1")
+        self.conn.commit()
         self._migrate_expense_categories_v2()
+        self._migrate_v3()
+
+    def _migrate_v3(self) -> None:
+        """Record schema v3 on an existing database (run once).
+
+        The v3 additions (``category_budgets`` table and the ``idx_var_recurring``
+        partial index) are created by ``schema.sql`` via ``CREATE ... IF NOT
+        EXISTS`` on every start, so there is no column/data change to apply here —
+        only the stored version needs bumping so downgrade guards and future
+        migrations see the correct level. A no-op on a fresh DB (row is None →
+        _initialise inserts the current version) and once already at v3.
+        """
+        row = self.conn.execute("SELECT version FROM schema_version LIMIT 1").fetchone()
+        if row is None or row["version"] >= 3:
+            return
+        self.conn.execute("UPDATE schema_version SET version = 3")
+        self.conn.commit()
+
+    def wipe_financial_data(self) -> None:
+        """Delete all rows from every financial table in one transaction.
+
+        Single source of truth for the "delete all data" reset (see WIPE_TABLES):
+        clearing them together avoids the class of bug where a newly added table
+        (e.g. variable_income) is forgotten and leaves orphaned rows that keep
+        surfacing (inflated income, blocked re-imports) after a full reset.
+        """
+        for table in WIPE_TABLES:
+            self.conn.execute(f"DELETE FROM {table}")
+        self.conn.commit()
 
     def _migrate_expense_categories_v2(self) -> None:
         """Rename legacy expense categories to the v2 taxonomy (run once).

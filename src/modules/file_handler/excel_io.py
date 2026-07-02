@@ -147,8 +147,10 @@ def export_workbook(
         _cell(ws, r, 1, _safe_text(label), zebra=z)
         _cell(ws, r, 2, _euros(cents), money=True, zebra=z)
         r += 1
+    # Annual projection uses the RECURRING surplus only — a one-off credit this
+    # month must not be multiplied across the whole year (matches the dashboard).
     note = ws.cell(row=r + 1, column=1,
-                   value=f"≈ {format_eur(max(0, overview.after_all_cents) * 12)} pro Jahr ansparbar")
+                   value=f"≈ {format_eur(max(0, overview.recurring_after_all_cents) * 12)} pro Jahr ansparbar")
     note.font = _SUBTITLE_FONT
 
     # --- Einnahmen ---

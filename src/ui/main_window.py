@@ -31,11 +31,13 @@ from ui.views.import_export_view import ImportExportView
 from ui.views.kredite_view import KrediteView
 from ui.views.rechner_view import RechnerView
 from ui.views.sparplaner_view import SparplanerView
+from ui.views.verlauf_view import VerlaufView
 
 # (label, icon name, view class). Einstellungen must stay last — the update flow
 # and thread cleanup reference it as self._views[-1].
 _NAV = [
     ("Dashboard", "dashboard", DashboardView),
+    ("Verlauf", "chart", VerlaufView),
     ("Haushaltsbuch", "book", HaushaltsbuchView),
     ("Kredite", "credit", KrediteView),
     ("Rechner", "calculator", RechnerView),

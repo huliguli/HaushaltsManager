@@ -11,19 +11,24 @@ PDF-Import/-Export. Alle Daten bleiben lokal auf dem Gerät.
 
 ## Funktionen
 
-- **Dashboard** – Monatsübersicht (Einnahmen / Fixkosten / variabel / verbleibend)
-  als Ampel-Cards, Verfügbarkeits-Kennzahlen und eine chronologische
-  **Fixkosten-Abbau-Timeline** (wann fällt welche Kosten weg → neuer
-  Verfügbarkeitsbetrag).
+- **Dashboard** – navigierbare Monatsübersicht (Einnahmen / Fixkosten / variabel /
+  verbleibend) als Ampel-Cards mit **Vergleich zum Vormonat**, Verfügbarkeits-Kennzahlen,
+  **Kategorie-Budgets** (Soll/Ist mit Ampel-Fortschrittsbalken) und einer chronologischen
+  **Fixkosten-Abbau-Timeline** (wann fällt welche Kosten weg → neuer Verfügbarkeitsbetrag).
+- **Verlauf & Trends** – Einnahmen, Ausgaben und Saldo über 6/12/24 Monate als
+  Liniendiagramm, Ausgaben-Kategorien im Zeitverlauf als gestapeltes Balkendiagramm
+  und Durchschnitts-Kennzahlen. Speist sich aus den bereits erfassten Daten.
 - **Haushaltsbuch** – Einnahmen, Fixkosten-Manager (Kategorien, Enddatum,
-  „noch X Monate", Ampel-Farben, Filter) und variable Ausgaben mit Monatsnavigation.
+  „noch X Monate", Ampel-Farben, Filter) und variable Ausgaben mit Monatsnavigation,
+  **monatsübergreifender Suche**, Kategoriefilter und klickbarer Spaltensortierung.
 - **Kredite** – laufende Kredite verwalten, optional mit einem Fixkosten-Eintrag
   verknüpft (bleibt synchron).
 - **Rechner** – Annuitäten-, Ballon-, Auto- und Hausfinanzierung mit vollständigem
   Tilgungsplan, Standard/Ballon-Vergleich und Haushaltsbudget-Check beim Auto.
-- **Import/Export** – Excel-Import mit automatischer Spaltenerkennung (gängige
-  Bankexporte), PDF-Import mit korrigierbarer Vorschau, Excel-Export (mehrere
-  Tabellenblätter) und PDF-Monatsbericht.
+- **Sparplaner** – Sparrate ↔ Sparziel mit Zinseszins, Startkapital und Budget-Check.
+- **Import/Export** – Kontoauszug-Import (CAMT/MT940/CSV/PDF) mit lernender
+  Auto-Kategorisierung, Excel-Import mit Spaltenerkennung, PDF-Import mit
+  korrigierbarer Vorschau, Excel-Export (mehrere Tabellenblätter) und PDF-Monatsbericht.
 - **Hell-/Dunkel-Design**, deutsche Formate (`1.234,56 €`, `TT.MM.JJJJ`),
   gespeicherte Fenstergröße, automatische Update-Prüfung.
 
@@ -103,7 +108,7 @@ src/
   database/schema.sql      SQLite-Schema (Beträge als Integer-Cent)
   modules/
     money.py  dates.py     Cent-Arithmetik + deutsche Formate/Parser
-    config.py  logging_setup.py  seed.py  budget.py
+    config.py  logging_setup.py  seed.py  budget.py  history.py
     models.py              Datenmodelle (Dataclasses)
     db_handler/            Datenbank + Repositories (parametrisierte Queries)
     calculator/            Annuität, Ballon, Auto, Haus, Timeline

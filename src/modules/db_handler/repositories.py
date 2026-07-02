@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from modules.db_handler.database import Database
 from modules.models import (
+    CategoryBudget,
     Credit,
     FixedCost,
     IncomeSource,
@@ -388,9 +389,52 @@ class SettingsRepository:
         )
 
 
+class CategoryBudgetRepository:
+    """Optional monthly spending target per expense category (integer cents)."""
+
+    def __init__(self, db: Database) -> None:
+        self.db = db
+
+    def all(self) -> dict[str, int]:
+        """Map category -> limit_cents for every category that has a budget set."""
+        rows = self.db.query(
+            "SELECT category, limit_cents FROM category_budgets WHERE limit_cents > 0")
+        return {r["category"]: int(r["limit_cents"]) for r in rows}
+
+    def list(self) -> list[CategoryBudget]:
+        rows = self.db.query("SELECT * FROM category_budgets ORDER BY category")
+        return [CategoryBudget.from_row(r) for r in rows]
+
+    def set(self, category: str, limit_cents: int) -> None:
+        """Set (or clear, when ``limit_cents <= 0``) the budget for a category."""
+        category = (category or "").strip()
+        if not category:
+            return
+        if limit_cents <= 0:
+            self.db.execute(
+                "DELETE FROM category_budgets WHERE category = ?", (category,))
+            return
+        self.db.execute(
+            "INSERT INTO category_budgets (category, limit_cents) VALUES (?, ?) "
+            "ON CONFLICT(category) DO UPDATE SET limit_cents = excluded.limit_cents, "
+            "updated_at = datetime('now')",
+            (category, int(limit_cents)))
+
+
 class MonthlySummaryRepository:
     def __init__(self, db: Database) -> None:
         self.db = db
+
+    def get(self, year: int, month: int) -> MonthlySummary | None:
+        row = self.db.query_one(
+            "SELECT * FROM monthly_summary WHERE year = ? AND month = ?", (year, month))
+        if row is None:
+            return None
+        return MonthlySummary(
+            id=row["id"], year=row["year"], month=row["month"],
+            income_cents=row["income_cents"], fixed_cents=row["fixed_cents"],
+            variable_cents=row["variable_cents"], remaining_cents=row["remaining_cents"],
+            note=row["note"] or "")
 
     def upsert(self, s: MonthlySummary) -> None:
         self.db.execute(
