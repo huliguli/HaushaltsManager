@@ -29,14 +29,14 @@ from ui.import_dialogs import MappingDialog, PdfImportDialog
 from ui.views.base_view import BaseView
 from ui.wizard import run_wizard
 from ui.widgets.common import heading, muted
-
-_MONTHS_DE = ["Januar", "Februar", "März", "April", "Mai", "Juni", "Juli",
-              "August", "September", "Oktober", "November", "Dezember"]
+from ui.widgets.month_nav import MonthNavigator
 
 
 class ImportExportView(BaseView):
     def __init__(self, ctx) -> None:
         super().__init__(ctx)
+        today = date.today()
+        self._export_year, self._export_month = today.year, today.month
         layout = QVBoxLayout(self)
         layout.setContentsMargins(30, 26, 30, 24)
         layout.setSpacing(16)
@@ -85,16 +85,42 @@ class ImportExportView(BaseView):
         layout.setContentsMargins(22, 20, 22, 20)
         layout.setSpacing(14)
         layout.addWidget(self._card_title("upload", "Exportieren"))
+
+        # Month picker: both reports are generated for the chosen month, so past
+        # months can be downloaded too (not only the current one).
+        picker = QFrame()
+        picker.setObjectName("Panel")
+        pl = QHBoxLayout(picker)
+        pl.setContentsMargins(14, 8, 14, 8)
+        pl.setSpacing(10)
+        lbl = QLabel("Monat für den Bericht")
+        lbl.setObjectName("FieldLabel")
+        pl.addWidget(lbl)
+        pl.addStretch(1)
+        self._export_nav = MonthNavigator(
+            self.ctx.colors, self._export_year, self._export_month, allow_future=False)
+        self._export_nav.month_changed.connect(self._on_export_month)
+        pl.addWidget(self._export_nav)
+        layout.addWidget(picker)
+
         layout.addWidget(self._action(
-            "Excel-Export",
-            "Alle Daten in eine Arbeitsmappe: Übersicht, Timeline, Ausgaben, Kredite, Tilgungspläne.",
+            "Excel-Monatsüberblick",
+            "Übersicht des gewählten Monats + Fixkosten, Kredite, Tilgungspläne und Monatsverlauf.",
             "Als Excel speichern…", self._export_excel))
         layout.addWidget(self._action(
             "PDF-Monatsbericht",
-            "Zusammenfassung des aktuellen Monats mit Tabellen und Diagramm.",
+            "Zusammenfassung des gewählten Monats mit Tabellen und Diagramm.",
             "Als PDF speichern…", self._export_pdf))
         layout.addStretch(1)
         return card
+
+    def _on_export_month(self, year: int, month: int) -> None:
+        self._export_year, self._export_month = year, month
+
+    def on_theme_changed(self) -> None:
+        # Re-tint the month navigator's chevrons for the new theme.
+        if hasattr(self, "_export_nav"):
+            self._export_nav.refresh_icons(self.ctx.colors)
 
     def _card_title(self, icon_name: str, text: str) -> QWidget:
         row = QWidget()
@@ -250,30 +276,34 @@ class ImportExportView(BaseView):
 
     # -- export handlers ----------------------------------------------------
     def _export_excel(self) -> None:
-        default = f"HaushaltsManager-Export-{date.today():%Y-%m-%d}.xlsx"
-        path, _ = QFileDialog.getSaveFileName(self, "Excel-Export speichern", default, "Excel (*.xlsx)")
+        y, m = self._export_year, self._export_month
+        month_label = f"{dates.month_name(m)} {y}"
+        default = f"HaushaltsManager-Monatsuebersicht-{y:04d}-{m:02d}.xlsx"
+        path, _ = QFileDialog.getSaveFileName(self, "Excel-Monatsüberblick speichern", default, "Excel (*.xlsx)")
         if not path:
             return
         try:
             out = excel_io.export_workbook(
                 path, income=self.ctx.income.list(), fixed_costs=self.ctx.fixed.list(),
-                expenses=self.ctx.expenses.list_recent(5000), credits=self.ctx.credits.list(),
-                overview=self.ctx.overview())
+                expenses=self.ctx.expenses.list_for_month(y, m),
+                history_expenses=self.ctx.expenses.list_recent(5000),
+                credits=self.ctx.credits.list(),
+                overview=self.ctx.overview(y, m), month_label=month_label)
             self._export_done(str(out))
         except Exception as exc:  # noqa: BLE001
             QMessageBox.critical(self, "Export fehlgeschlagen", f"Die Datei konnte nicht erstellt werden.\n\n{exc}")
 
     def _export_pdf(self) -> None:
-        today = date.today()
-        default = f"Monatsbericht-{today:%Y-%m}.pdf"
+        y, m = self._export_year, self._export_month
+        default = f"Monatsbericht-{y:04d}-{m:02d}.pdf"
         path, _ = QFileDialog.getSaveFileName(self, "PDF-Bericht speichern", default, "PDF (*.pdf)")
         if not path:
             return
         try:
             out = pdf_report.generate_monthly_report(
-                path, year=today.year, month=today.month, overview=self.ctx.overview(),
+                path, year=y, month=m, overview=self.ctx.overview(y, m),
                 fixed_costs=self.ctx.fixed.list(),
-                expenses=self.ctx.expenses.list_for_month(today.year, today.month),
+                expenses=self.ctx.expenses.list_for_month(y, m),
                 credits=self.ctx.credits.list())
             self._export_done(str(out))
         except Exception as exc:  # noqa: BLE001

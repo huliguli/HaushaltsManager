@@ -32,7 +32,8 @@ PDF-Import/-Export. Alle Daten bleiben lokal auf dem Gerät.
   jederzeit wieder rückgängig machbar.
 - **Import/Export** – Kontoauszug-Import (CAMT/MT940/CSV/PDF) mit lernender
   Auto-Kategorisierung, Excel-Import mit Spaltenerkennung, PDF-Import mit
-  korrigierbarer Vorschau, Excel-Export (mehrere Tabellenblätter) und PDF-Monatsbericht.
+  korrigierbarer Vorschau sowie **Excel-Monatsüberblick und PDF-Monatsbericht –
+  für den aktuellen oder einen beliebigen vergangenen Monat** (per Monatsauswahl).
 - **Hell-/Dunkel-Design**, deutsche Formate (`1.234,56 €`, `TT.MM.JJJJ`),
   gespeicherte Fenstergröße, automatische Update-Prüfung.
 

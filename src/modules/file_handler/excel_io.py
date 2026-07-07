@@ -116,21 +116,31 @@ def _totals(ws, row: int, span: int, label: str, total_cents: int, money_col: in
 
 def export_workbook(
     path: str | Path, *, income, fixed_costs, expenses, credits, overview,
+    month_label: str | None = None, history_expenses=None,
 ) -> Path:
-    """Write the full multi-sheet report to ``path`` and return it.
+    """Write the multi-sheet report to ``path`` and return it.
 
     Sheets: Übersicht, Einnahmen, Fixkosten, Fixkosten-Timeline, Ausgaben,
     Ausgaben nach Kategorie, Monatsverlauf, Kredite, Tilgungspläne. Every text
     cell that holds user data goes through ``_safe_text`` (formula-injection
     guard) and all amounts use a euro number format.
+
+    When ``month_label`` is given (e.g. "Juli 2026") the workbook is a monthly
+    overview: ``overview`` and ``expenses`` describe that month, so the Übersicht,
+    Ausgaben and category sheets are month-specific. ``history_expenses`` (the
+    full expense list) still feeds the Monatsverlauf sheet so the multi-month
+    trend is preserved; it defaults to ``expenses`` for the old whole-database call.
     """
+    hist = history_expenses if history_expenses is not None else expenses
     wb = Workbook()
     today = dates.format_date(dates.today())
+    overview_sub = (f"Monat {month_label} · erstellt am {today}"
+                    if month_label else f"Erstellt am {today}")
 
     # --- Übersicht ---
     ws = wb.active
     ws.title = "Übersicht"
-    hr = _sheet_title(ws, "HaushaltsManager – Finanzübersicht", f"Erstellt am {today}", 2)
+    hr = _sheet_title(ws, "HaushaltsManager – Finanzübersicht", overview_sub, 2)
     _widths(ws, [34, 20])
     _header(ws, ["Position", "Betrag / Monat"], hr, right_cols=(1,))
     rows = [
@@ -215,7 +225,8 @@ def export_workbook(
 
     # --- Ausgaben ---
     ws = wb.create_sheet("Ausgaben")
-    hr = _sheet_title(ws, "Variable Ausgaben", "Einzelne erfasste Ausgaben", 4)
+    exp_sub = f"Erfasste Ausgaben im Monat {month_label}" if month_label else "Einzelne erfasste Ausgaben"
+    hr = _sheet_title(ws, "Variable Ausgaben", exp_sub, 4)
     _widths(ws, [16, 18, 42, 16])
     _header(ws, ["Datum", "Kategorie", "Beschreibung", "Betrag"], hr, right_cols=(3,))
     r, total = hr + 1, 0
@@ -237,7 +248,9 @@ def export_workbook(
     for e in expenses:
         by_cat[e.category] += e.amount_cents
     ws = wb.create_sheet("Ausgaben nach Kategorie")
-    hr = _sheet_title(ws, "Ausgaben nach Kategorie", "Summe je Kategorie über alle erfassten Ausgaben", 3)
+    cat_sub = (f"Summe je Kategorie im Monat {month_label}"
+               if month_label else "Summe je Kategorie über alle erfassten Ausgaben")
+    hr = _sheet_title(ws, "Ausgaben nach Kategorie", cat_sub, 3)
     _widths(ws, [24, 18, 12])
     _header(ws, ["Kategorie", "Betrag", "Anteil"], hr, right_cols=(1, 2))
     cat_total = sum(by_cat.values()) or 1
@@ -250,9 +263,9 @@ def export_workbook(
         r += 1
     _totals(ws, r, 3, "Summe", sum(by_cat.values()), 2)
 
-    # --- Monatsverlauf ---
+    # --- Monatsverlauf (always the full history, independent of a chosen month) ---
     monthly: dict[str, int] = defaultdict(int)
-    for e in expenses:
+    for e in hist:
         monthly[(e.date or "")[:7]] += e.amount_cents
     ws = wb.create_sheet("Monatsverlauf")
     hr = _sheet_title(ws, "Monatsverlauf", "Variable Ausgaben je Monat", 2)

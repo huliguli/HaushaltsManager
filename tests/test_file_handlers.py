@@ -61,6 +61,35 @@ def test_excel_annual_saving_uses_recurring_income(tmp_path):
     assert "40.440,00" not in note   # would be the wrong (one-off-inflated) figure
 
 
+def test_excel_monthly_overview_is_month_scoped(tmp_path):
+    # A monthly overview: Übersicht + Ausgaben describe the chosen month, while
+    # the Monatsverlauf sheet still spans the full history (so past months can be
+    # exported without losing the multi-month trend).
+    month_exp = [VariableExpense("2026-06-05", 3_000, "Lebensmittel", "Juni-Kauf")]
+    history = month_exp + [
+        VariableExpense("2026-05-10", 5_000, "Auto & Tanken"),
+        VariableExpense("2026-07-01", 9_900, "Freizeit & Unterhaltung")]
+    overview = BudgetOverview(
+        income_cents=200_000, recurring_income_cents=200_000,
+        fixed_cents=80_000, variable_cents=3_000,
+        expenses_by_category={"Lebensmittel": 3_000})
+    out = excel_io.export_workbook(
+        tmp_path / "monat.xlsx", income=[], fixed_costs=[], expenses=month_exp,
+        history_expenses=history, credits=[], overview=overview, month_label="Juni 2026")
+
+    wb = load_workbook(out)
+    subtitle = " ".join(str(c.value) for row in wb["Übersicht"].iter_rows()
+                        for c in row if c.value)
+    assert "Juni 2026" in subtitle                       # month named in the overview
+    aus = wb["Ausgaben"]
+    descs = [aus.cell(row=r, column=3).value for r in range(1, aus.max_row + 1)]
+    assert "Juni-Kauf" in descs                          # the month's expense is listed
+    # Monatsverlauf spans all three history months, not just June.
+    ver = wb["Monatsverlauf"]
+    ym = [ver.cell(row=r, column=1).value for r in range(1, ver.max_row + 1)]
+    assert len([x for x in ym if x and "/" in str(x)]) == 3
+
+
 def test_excel_import_mapping_and_rows(tmp_path):
     overview, fixed, expenses, credits = _sample()
     path = excel_io.export_workbook(
