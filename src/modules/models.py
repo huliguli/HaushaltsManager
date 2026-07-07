@@ -16,7 +16,7 @@ from modules import dates
 # Used to populate dropdowns and to colour-code the UI consistently.
 FIXED_CATEGORIES = [
     "Wohnen", "Auto", "Kommunikation", "Kredit",
-    "Freizeit", "Persönlich", "Versicherung", "Sonstiges",
+    "Freizeit", "Persönlich", "Versicherung", "Sparen", "Sonstiges",
 ]
 # Expense taxonomy (schema v2). Order = dropdown display order, everyday
 # spending first, the "Sonstiges" fallback last. These strings are the single

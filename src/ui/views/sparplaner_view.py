@@ -32,9 +32,9 @@ from PyQt6.QtWidgets import (
 
 from modules.calculator import savings
 from modules.money import format_eur
-from ui import theme
+from ui import plan_actions, theme
 from ui.views.base_view import BaseView
-from ui.widgets.common import align_table_headers, clear_layout, heading, muted
+from ui.widgets.common import align_table_headers, clear_layout, heading, muted, primary_button
 from ui.widgets.inputs import MoneyLineEdit, labelled
 
 
@@ -237,6 +237,14 @@ class SparplanerView(BaseView):
         badge_row = QHBoxLayout()
         badge_row.addWidget(badge)
         badge_row.addStretch(1)
+        # Offer to plan the savings rate into the household book (as a fixed cost
+        # over the term). Only when there is an actual monthly rate to save.
+        if res.monthly_cents > 0:
+            plan_btn = primary_button("Zum Haushaltsbuch hinzufügen", c)
+            plan_btn.clicked.connect(
+                lambda _=False, mo=res.monthly_cents, mn=months:
+                plan_actions.confirm_and_plan_savings(self, self.ctx, mo, mn))
+            badge_row.addWidget(plan_btn)
         badge_wrap = QWidget()
         badge_wrap.setLayout(badge_row)
         self.results.addWidget(badge_wrap)

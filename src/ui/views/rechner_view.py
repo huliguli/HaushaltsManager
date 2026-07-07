@@ -32,9 +32,9 @@ from PyQt6.QtWidgets import (
 
 from modules.calculator import annuity, auto, balloon, house
 from modules.money import format_eur
-from ui import theme
+from ui import plan_actions, theme
 from ui.views.base_view import BaseView
-from ui.widgets.common import align_table_headers, clear_layout, heading, muted
+from ui.widgets.common import align_table_headers, clear_layout, heading, muted, primary_button
 from ui.widgets.inputs import MoneyLineEdit, labelled
 
 
@@ -162,6 +162,20 @@ class _CalcTab(QWidget):
         layout.addStretch(1)
         return row
 
+    def _plan_row(self, *, name: str, total_cents: int | None, monthly_cents: int,
+                  term_months: int, interest_rate: float | None, category: str) -> QWidget:
+        """A right-aligned 'add this loan to the Haushaltsbuch' action button."""
+        row = QWidget()
+        h = QHBoxLayout(row)
+        h.setContentsMargins(0, 0, 0, 0)
+        h.addStretch(1)
+        btn = primary_button("Als Kredit ins Haushaltsbuch", self.ctx.colors)
+        btn.clicked.connect(lambda _=False: plan_actions.confirm_and_plan_credit(
+            self, self.ctx, name=name, total_cents=total_cents, monthly_cents=monthly_cents,
+            term_months=term_months, interest_rate=interest_rate, category=category))
+        h.addWidget(btn)
+        return row
+
     def refresh(self) -> None:
         pass
 
@@ -202,6 +216,10 @@ class _AnnuityTab(_CalcTab):
             ("Gesamtkosten", format_eur(res.total_paid_cents), c["text"]),
             ("Gesamtzinsen", format_eur(res.total_interest_cents), c["amber"]),
         ]))
+        self.results.addWidget(self._plan_row(
+            name="Annuitätenkredit", total_cents=principal,
+            monthly_cents=res.monthly_payment_cents, term_months=res.term_months,
+            interest_rate=self.rate.value(), category="Divers"))
         plan_title = QLabel("Tilgungsplan")
         plan_title.setObjectName("H2")
         self.results.addWidget(plan_title)
@@ -281,6 +299,10 @@ class _BalloonTab(_CalcTab):
             ("Empf. Rücklage/Mon.", format_eur(bal.recommended_reserve_cents), c["blue"]),
             ("Eff. Belastung/Mon.", format_eur(bal.effective_monthly_cents), c["text"]),
         ]))
+        self.results.addWidget(self._plan_row(
+            name="Ballonkredit", total_cents=principal,
+            monthly_cents=bal.monthly_payment_cents, term_months=self.term.value(),
+            interest_rate=self.rate.value(), category="Divers"))
 
         # Direct comparison standard vs balloon.
         cmp_title = QLabel("Vergleich: Standard vs. Ballon")
@@ -491,6 +513,11 @@ class _AutoTab(_CalcTab):
             ("Verbleibend mit diesem Auto", format_eur(rem),
              c["green"] if rem >= 0 else c["red"]),
         ]))
+        # Plan the financing instalment (not the running costs) as a car loan.
+        self.results.addWidget(self._plan_row(
+            name="Autokredit", total_cents=max(0, price - down),
+            monthly_cents=res.monthly_financing_cents, term_months=self.term.value(),
+            interest_rate=self.rate.value(), category="Auto"))
 
         # Make the budget basis transparent (esp. the freed existing car costs).
         if current_auto > 0:
@@ -571,6 +598,10 @@ class _HausTab(_CalcTab):
             ("Restschuld nach Zinsbindung", format_eur(res.residual_after_fixed_cents), c["amber"]),
             ("Gesamtzinsen", format_eur(res.total_interest_cents), c["red"]),
         ]))
+        self.results.addWidget(self._plan_row(
+            name="Hausdarlehen", total_cents=res.loan_cents,
+            monthly_cents=res.monthly_payment_cents, term_months=self.term.value() * 12,
+            interest_rate=self.rate.value(), category="Haus"))
         plan_title = QLabel("Tilgungsplan")
         plan_title.setObjectName("H2")
         self.results.addWidget(plan_title)

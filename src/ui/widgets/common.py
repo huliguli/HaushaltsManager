@@ -10,6 +10,7 @@ from PyQt6.QtWidgets import (
     QHeaderView,
     QLabel,
     QLayout,
+    QPushButton,
     QSizePolicy,
     QStackedLayout,
     QTableWidget,
@@ -41,6 +42,30 @@ def soft_shadow(widget: QWidget, color_rgba: str = "rgba(20,30,50,0.10)") -> Non
     effect.setYOffset(4)
     effect.setColor(QColor(0, 0, 0, 28))
     widget.setGraphicsEffect(effect)
+
+
+def primary_button(text: str, colors: dict) -> QPushButton:
+    """A primary-styled button whose blue fill is set INLINE from the theme.
+
+    The global ``QPushButton#Primary`` rule does not get painted by
+    ``QWidget.render()``/``grab()`` when the button sits on a ``background:
+    transparent`` ancestor (e.g. the scrollable results areas of the calculators),
+    so buttons placed there must carry their own background. Rebuild it with the
+    current ``colors`` on each render so it still follows the light/dark theme.
+    """
+    btn = QPushButton(text)
+    btn.setObjectName("Primary")
+    btn.setCursor(Qt.CursorShape.PointingHandCursor)
+    c = colors
+    btn.setStyleSheet(
+        f"QPushButton{{background:{c['primary_btn']};color:{c['on_primary']};"
+        f"border:1px solid {c['primary_btn']};border-radius:10px;padding:9px 16px;"
+        f"font-weight:600;min-height:18px;}}"
+        f"QPushButton:hover{{background:{c['primary_btn_hover']};"
+        f"border-color:{c['primary_btn_hover']};}}"
+        f"QPushButton:pressed{{background:{c['primary_btn_press']};"
+        f"border-color:{c['primary_btn_press']};}}")
+    return btn
 
 
 def heading(text: str, level: int = 1) -> QLabel:

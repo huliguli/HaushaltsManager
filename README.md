@@ -26,6 +26,10 @@ PDF-Import/-Export. Alle Daten bleiben lokal auf dem Gerät.
 - **Rechner** – Annuitäten-, Ballon-, Auto- und Hausfinanzierung mit vollständigem
   Tilgungsplan, Standard/Ballon-Vergleich und Haushaltsbudget-Check beim Auto.
 - **Sparplaner** – Sparrate ↔ Sparziel mit Zinseszins, Startkapital und Budget-Check.
+- **In den Haushalt übernehmen** – berechnete Sparpläne und Kredite lassen sich per
+  Klick (mit Bestätigung) ins Haushaltsbuch einplanen: der Sparplan als Fixposten
+  über seine Laufzeit, der Kredit als Kredit-Eintrag samt verknüpften Fixkosten –
+  jederzeit wieder rückgängig machbar.
 - **Import/Export** – Kontoauszug-Import (CAMT/MT940/CSV/PDF) mit lernender
   Auto-Kategorisierung, Excel-Import mit Spaltenerkennung, PDF-Import mit
   korrigierbarer Vorschau, Excel-Export (mehrere Tabellenblätter) und PDF-Monatsbericht.
@@ -108,7 +112,7 @@ src/
   database/schema.sql      SQLite-Schema (Beträge als Integer-Cent)
   modules/
     money.py  dates.py     Cent-Arithmetik + deutsche Formate/Parser
-    config.py  logging_setup.py  seed.py  budget.py  history.py
+    config.py  logging_setup.py  seed.py  budget.py  history.py  planning.py
     models.py              Datenmodelle (Dataclasses)
     db_handler/            Datenbank + Repositories (parametrisierte Queries)
     calculator/            Annuität, Ballon, Auto, Haus, Timeline
