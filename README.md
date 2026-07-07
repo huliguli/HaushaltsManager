@@ -28,8 +28,10 @@ PDF-Import/-Export. Alle Daten bleiben lokal auf dem Gerät.
 - **Sparplaner** – Sparrate ↔ Sparziel mit Zinseszins, Startkapital und Budget-Check.
 - **In den Haushalt übernehmen** – berechnete Sparpläne und Kredite lassen sich per
   Klick (mit Bestätigung) ins Haushaltsbuch einplanen: der Sparplan als Fixposten
-  über seine Laufzeit, der Kredit als Kredit-Eintrag samt verknüpften Fixkosten –
-  jederzeit wieder rückgängig machbar.
+  über seine Laufzeit – **mit wählbarem Startmonat** (aktueller, nächster oder ein
+  beliebiger Zukunftsmonat), sodass genau die betroffenen Monate eingeplant werden –,
+  der Kredit als Kredit-Eintrag samt verknüpften Fixkosten. Jederzeit wieder
+  rückgängig machbar.
 - **Import/Export** – Kontoauszug-Import (CAMT/MT940/CSV/PDF) mit lernender
   Auto-Kategorisierung, Excel-Import mit Spaltenerkennung, PDF-Import mit
   korrigierbarer Vorschau sowie **Excel-Monatsüberblick und PDF-Monatsbericht –

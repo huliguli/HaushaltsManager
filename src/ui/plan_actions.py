@@ -33,29 +33,33 @@ def _offer_undo(parent, title: str, text: str, undo_fn) -> None:
 
 
 def confirm_and_plan_savings(parent, ctx, monthly_cents: int, months: int) -> None:
-    """Confirm, then plan a savings rate as a fixed cost; offer to undo."""
+    """Let the user choose a start month, then plan the savings rate; offer undo.
+
+    The plan runs for its term from the chosen (current or future) month, so it
+    is planned into exactly those months — earlier months stay untouched.
+    """
     if monthly_cents <= 0:
         return
-    until = _until_label(months)
-    msg = (
-        f"Diesen Sparplan zum Haushaltsbuch hinzufügen?\n\n"
-        f"Es wird eine monatliche Sparrate von {format_eur(monthly_cents)} als "
-        f"Fixposten (Kategorie „Sparen“) über {int(months)} Monate (bis {until}) "
-        f"eingeplant.\n\nDu kannst ihn jederzeit wieder rückgängig machen.")
-    if QMessageBox.question(parent, "Zum Haushaltsbuch hinzufügen", msg) \
-            != QMessageBox.StandardButton.Yes:
+    from ui.plan_dialogs import SavingsStartDialog
+    dlg = SavingsStartDialog(ctx.colors, monthly_cents, months, parent)
+    if not dlg.exec():
         return
-    fixed_id = planning.plan_savings(ctx.fixed, monthly_cents, months)
+    start = dlg.start_date()
+    fixed_id = planning.plan_savings(ctx.fixed, monthly_cents, months, start=start)
     ctx.notify_changed()
 
     def undo() -> None:
         planning.unplan_savings(ctx.fixed, fixed_id)
         ctx.notify_changed()
 
+    from_label = f"{dates.month_name(start.month)} {start.year}"
+    end = dates.parse_date(planning.term_end_iso(start, months))
+    to_label = f"{dates.month_name(end.month)} {end.year}"
     _offer_undo(
         parent, "Sparplan eingeplant",
-        f"Der Sparplan ({format_eur(monthly_cents)} / Monat, bis {until}) wurde als "
-        f"Fixposten angelegt.\nDu findest ihn unter Haushaltsbuch → Fixkosten.",
+        f"Der Sparplan ({format_eur(monthly_cents)} / Monat) läuft von {from_label} "
+        f"bis {to_label} und wurde als Fixposten angelegt.\n"
+        f"Du findest ihn unter Haushaltsbuch → Fixkosten.",
         undo)
 
 

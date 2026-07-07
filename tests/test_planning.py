@@ -1,8 +1,9 @@
 """Tests for planning a savings plan / loan into the Haushaltsbuch (+ undo)."""
 
+import calendar
 from datetime import date
 
-from modules import budget, planning
+from modules import budget, dates, planning
 from modules.db_handler.database import Database
 from modules.db_handler.repositories import (
     CreditRepository,
@@ -10,6 +11,12 @@ from modules.db_handler.repositories import (
     IncomeRepository,
     VariableExpenseRepository,
 )
+
+
+def _active_in(fixed_repo, fixed_id, year, month):
+    last = calendar.monthrange(year, month)[1]
+    start, end = f"{year:04d}-{month:02d}-01", f"{year:04d}-{month:02d}-{last:02d}"
+    return any(c.id == fixed_id for c in fixed_repo.active_for_month(start, end))
 
 
 def _repos(tmp_path):
@@ -37,6 +44,36 @@ def test_plan_savings_creates_bounded_fixed_cost(tmp_path):
     # Undo removes it entirely.
     planning.unplan_savings(fixed, fid)
     assert fixed.get(fid) is None
+    db.close()
+
+
+def test_plan_savings_future_start_hits_exactly_the_right_months(tmp_path):
+    # Start 2 months out (Sept 2026) for 6 months -> Sep 2026 .. Feb 2027.
+    db, fixed, _credits = _repos(tmp_path)
+    fid = planning.plan_savings(fixed, 10_000, 6, start=date(2026, 9, 1))
+    fc = fixed.get(fid)
+    assert fc.start_date == "2026-09-01" and fc.end_date == "2027-02-28"
+
+    assert not _active_in(fixed, fid, 2026, 7)     # this month (before start) — untouched
+    assert not _active_in(fixed, fid, 2026, 8)     # next month — untouched
+    assert _active_in(fixed, fid, 2026, 9)         # start month
+    assert _active_in(fixed, fid, 2027, 2)         # final month of the term
+    assert not _active_in(fixed, fid, 2027, 3)     # after the term — untouched
+    # Exactly six consecutive months are affected.
+    affected = sum(_active_in(fixed, fid, *dates.shift_month(2026, 9, i)) for i in range(0, 8))
+    assert affected == 6
+    db.close()
+
+
+def test_future_savings_counts_in_budget_only_within_term(tmp_path):
+    db, fixed, _credits = _repos(tmp_path)
+    income = IncomeRepository(db)
+    exp = VariableExpenseRepository(db)
+    planning.plan_savings(fixed, 10_000, 6, start=date(2026, 9, 1))
+    assert budget.compute_overview(income, fixed, exp, 2026, 7).fixed_cents == 0    # before start
+    assert budget.compute_overview(income, fixed, exp, 2026, 9).fixed_cents == 10_000  # active
+    assert budget.compute_overview(income, fixed, exp, 2027, 2).fixed_cents == 10_000  # last month
+    assert budget.compute_overview(income, fixed, exp, 2027, 3).fixed_cents == 0    # after end
     db.close()
 
 

@@ -325,9 +325,18 @@ class _FixedTab(QWidget):
             self.table.setItem(r, 1, _text_item(it.category))
             self.table.setItem(r, 2, _money_item(it.amount_cents))
             self.table.setItem(r, 3, _text_item(dates.format_date(it.end_date) or "unbegrenzt"))
-            key = it.status_key()
-            pill = Pill(dates.format_months_remaining(it.months_remaining()),
-                        theme.ampel_color(key, colors), theme.ampel_soft(key, colors))
+            start = dates.parse_date(it.start_date)
+            if start and start > dates.today():
+                # Not started yet (e.g. a savings plan scheduled for a later month):
+                # flag its start instead of the misleading "noch X Monate" (which
+                # counts to the end date). It still counts in the budget only from
+                # this month on (active_for_month).
+                pill = Pill(f"ab {start.month:02d}.{start.year}",
+                            theme.ampel_color("blue", colors), theme.ampel_soft("blue", colors))
+            else:
+                key = it.status_key()
+                pill = Pill(dates.format_months_remaining(it.months_remaining()),
+                            theme.ampel_color(key, colors), theme.ampel_soft(key, colors))
             self.table.setCellWidget(r, 4, pill_cell(pill))
 
         header = self.table.horizontalHeader()
