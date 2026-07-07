@@ -126,13 +126,27 @@ class _IncomeTab(QWidget):
     def __init__(self, ctx) -> None:
         super().__init__()
         self.ctx = ctx
+        today = date.today()
+        self._year, self._month = today.year, today.month
+
         layout = QVBoxLayout(self)
         layout.setContentsMargins(2, 14, 2, 2)
         layout.setSpacing(12)
 
+        # Month navigator + running total. The fixed monthly income sources apply
+        # to every month and are always shown; only the one-off (imported) credits
+        # are scoped to the selected month, so blättering shows that month's extras.
+        nav = QHBoxLayout()
+        self._nav = MonthNavigator(self.ctx.colors, self._year, self._month, allow_future=True)
+        self._nav.month_changed.connect(self._on_month)
+        nav.addWidget(self._nav)
+        nav.addStretch(1)
         self.total = QLabel()
         self.total.setObjectName("H2")
-        bar, add, edit, delete = _toolbar(self.total, "+ Einnahme")
+        nav.addWidget(self.total)
+        layout.addLayout(nav)
+
+        bar, add, edit, delete = _toolbar(QLabel(""), "+ Einnahme")
         layout.addWidget(bar)
 
         self.table = _make_table(["Bezeichnung", "Art", "Betrag / Monat", "Status"])
@@ -146,10 +160,15 @@ class _IncomeTab(QWidget):
         edit.clicked.connect(self._edit)
         delete.clicked.connect(self._delete)
 
+    def _on_month(self, year: int, month: int) -> None:
+        self._year, self._month = year, month
+        self.refresh()
+
     def refresh(self) -> None:
+        self._nav.refresh_icons(self.ctx.colors)   # keep chevrons themed
         colors = self.ctx.colors
-        sources = self.ctx.income.list()                 # recurring monthly income
-        oneoffs = self.ctx.var_income.list_recent(200)    # one-off / imported credits
+        sources = self.ctx.income.list()                              # recurring monthly income
+        oneoffs = self.ctx.var_income.list_for_month(self._year, self._month)  # this month's credits
         self.table.setRowCount(len(sources) + len(oneoffs))
         r = 0
         for it in sources:
@@ -182,11 +201,10 @@ class _IncomeTab(QWidget):
         self.table.setColumnWidth(3, 110)
         align_table_headers(self.table, right_cols=(2,))
         self._panel.update_state()
-        today = date.today()
-        oneoff_month = self.ctx.var_income.total_for_month(today.year, today.month)
+        oneoff_month = self.ctx.var_income.total_for_month(self._year, self._month)
         text = f"Feste Einnahmen/Monat: {format_eur(self.ctx.income.total_active())}"
         if oneoff_month:
-            text += f"  ·  einmalig diesen Monat: {format_eur(oneoff_month)}"
+            text += f"  ·  einmalig im Monat: {format_eur(oneoff_month)}"
         self.total.setText(text)
 
     def _add(self) -> None:
