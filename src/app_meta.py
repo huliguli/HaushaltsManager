@@ -18,7 +18,7 @@ APP_DISPLAY_NAME = "HaushaltsManager"
 GITHUB_REPO = "huliguli/HaushaltsManager"
 
 # Fallback version; the real value is read from the bundled version.json below.
-_FALLBACK_VERSION = "2.3.0"
+_FALLBACK_VERSION = "2.4.0"
 
 
 def is_frozen() -> bool:
@@ -59,16 +59,27 @@ APP_VERSION = _read_bundled_version()
 
 
 def data_dir() -> Path:
-    """Per-user writable data directory.
+    """Per-user writable data directory (identical database/config on every OS).
 
-    The packaged executable typically lives in a read-only location
-    (Program Files), so the database, config and logs must live in the
-    user profile instead. On Windows that is ``%APPDATA%\\HaushaltsManager``.
+    The packaged app usually lives in a read-only location (Program Files, or a
+    read-only mounted .app), so the database, config and logs live in the user
+    profile instead — per the OS convention:
+        * Windows: ``%APPDATA%\\HaushaltsManager``
+        * macOS:   ``~/Library/Application Support/HaushaltsManager``
+        * Linux:   ``$XDG_DATA_HOME/HaushaltsManager`` (or ``~/.local/share/...``)
+
+    ``APPDATA`` is honoured on ANY OS when set, so tests can redirect the whole
+    data directory to a temp folder regardless of platform.
     """
     base = os.environ.get("APPDATA")
     if base:
         path = Path(base) / APP_NAME
-    else:  # non-Windows / unusual setups
+    elif sys.platform == "darwin":
+        path = Path.home() / "Library" / "Application Support" / APP_NAME
+    elif sys.platform.startswith("linux"):
+        xdg = os.environ.get("XDG_DATA_HOME")
+        path = (Path(xdg) if xdg else Path.home() / ".local" / "share") / APP_NAME
+    else:  # unusual setups
         path = Path.home() / f".{APP_NAME.lower()}"
     path.mkdir(parents=True, exist_ok=True)
     return path

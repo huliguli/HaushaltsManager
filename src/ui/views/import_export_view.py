@@ -17,7 +17,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from modules import dates
+from modules import dates, platform_util
 from modules.bank_import import parsers as bank_parsers
 from modules.bank_import.categorize import Categorizer
 from modules.bank_import.commit import commit_transactions
@@ -318,10 +318,7 @@ class ImportExportView(BaseView):
         box.addButton("Schließen", QMessageBox.ButtonRole.RejectRole)
         box.exec()
         if box.clickedButton() is open_btn:
-            try:
-                os.startfile(os.path.dirname(path))  # noqa: S606 - opening a folder we just wrote
-            except Exception:  # noqa: BLE001
-                pass
+            platform_util.open_path(os.path.dirname(path))
 
     def refresh(self) -> None:
         pass

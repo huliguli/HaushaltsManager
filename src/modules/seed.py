@@ -49,7 +49,7 @@ def _candidate_dirs() -> list[Path]:
     """
     dirs = [data_dir(), data_dir() / "database"]
     if is_frozen():
-        # User drops their real seed beside the .exe.
+        # User drops their real seed beside the program (or in the data dir above).
         exe_dir = Path(sys.executable).parent
         dirs += [exe_dir, exe_dir / "database"]
     else:

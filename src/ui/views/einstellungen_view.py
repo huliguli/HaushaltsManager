@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import os
-
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
     QCheckBox,
@@ -18,6 +16,7 @@ from PyQt6.QtWidgets import (
 )
 
 from app_meta import APP_DISPLAY_NAME, APP_VERSION, GITHUB_REPO, data_dir, logs_dir
+from modules import platform_util
 from modules.updater import updater
 from ui.views.base_view import BaseView
 from ui.wizard import run_wizard
@@ -124,8 +123,8 @@ class EinstellungenView(BaseView):
     def _install(self, info) -> None:
         if not info.asset_url:
             QMessageBox.information(
-                self, "Update", "Im Release ist keine .exe enthalten. Bitte manuell von der "
-                "Release-Seite herunterladen.")
+                self, "Update", "Im Release ist keine passende Programmdatei für dein System "
+                "enthalten. Bitte lade die neue Version manuell von der Release-Seite herunter.")
             return
         progress = QProgressDialog("Update wird heruntergeladen …", "Abbrechen", 0, 100, self)
         progress.setWindowTitle("Update")
@@ -151,19 +150,21 @@ class EinstellungenView(BaseView):
             from PyQt6.QtWidgets import QApplication
             QApplication.instance().quit()
             return
-        # apply returned False: in a real build that means the signature check
-        # failed (fail-closed); in a dev run it is simply not applicable.
+        # apply returned False: in a real build that means the update could not be
+        # applied automatically (on Windows e.g. the fail-closed signature check;
+        # on macOS e.g. the bundle could not be swapped); in a dev run it is simply
+        # not applicable.
         from app_meta import is_frozen
         if is_frozen():
             QMessageBox.warning(
                 self, "Update nicht möglich",
-                "Die Signatur des Updates konnte nicht bestätigt werden. Das Update "
-                "wurde aus Sicherheitsgründen abgebrochen. Bitte lade die neue Version "
-                "bei Bedarf manuell von der Release-Seite herunter.")
+                "Das Update konnte nicht automatisch angewendet werden (u. a. aus "
+                "Sicherheitsgründen). Bitte lade die neue Version bei Bedarf manuell "
+                "von der Release-Seite herunter.")
         else:
             QMessageBox.information(
                 self, "Update", "Das Update wurde geladen. Im Entwicklungsmodus erfolgt kein "
-                "automatischer Austausch – bitte die neue Release-EXE verwenden.")
+                "automatischer Austausch – bitte die gebaute Programmversion verwenden.")
 
     def background_threads(self) -> list:
         """Running update threads owned by this view (for shutdown cleanup)."""
@@ -241,10 +242,7 @@ class EinstellungenView(BaseView):
 
     @staticmethod
     def _open(path) -> None:
-        try:
-            os.startfile(str(path))  # noqa: S606 - opening a known local folder
-        except Exception:  # noqa: BLE001
-            pass
+        platform_util.open_path(path)
 
     # -- about --------------------------------------------------------------
     def _about_card(self) -> QFrame:

@@ -1,9 +1,10 @@
 # HaushaltsManager
 
-Eine private Desktop-App für Windows zur Verwaltung von Einnahmen, Fixkosten,
-variablen Ausgaben und Krediten – mit Dashboard, Fixkosten-Abbau-Timeline,
+Eine private Desktop-App für **Windows und macOS** zur Verwaltung von Einnahmen,
+Fixkosten, variablen Ausgaben und Krediten – mit Dashboard, Fixkosten-Abbau-Timeline,
 Finanzierungsrechnern (Annuität, Ballon, Auto, Haus) sowie Excel- und
-PDF-Import/-Export. Alle Daten bleiben lokal auf dem Gerät.
+PDF-Import/-Export. Alle Daten bleiben lokal auf dem Gerät. Beide Plattformen
+werden aus **derselben Codebasis** gebaut, sodass der Funktionsumfang identisch bleibt.
 
 > Privat genutztes Werkzeug. Die Oberfläche basiert auf **PyQt6**, das unter der
 > **GPL** steht – für die rein private, nicht-kommerzielle Nutzung ist das
@@ -41,6 +42,8 @@ PDF-Import/-Export. Alle Daten bleiben lokal auf dem Gerät.
 
 ## Installation (Endnutzer)
 
+### Windows
+
 Unter **Releases** die `HaushaltsManager-Setup.exe` herunterladen und ausführen.
 Es ist ein **Installer pro Benutzer** (keine Administratorrechte nötig); er legt
 die App unter `%LOCALAPPDATA%\Programs\HaushaltsManager` an, erstellt einen
@@ -55,6 +58,24 @@ Startmenü-Eintrag und einen Deinstaller. Die Daten liegen separat unter
 > Der Installer ist self-signed signiert (Vorabversion). Auf fremden Rechnern kann
 > Windows SmartScreen weiterhin warnen – über *Weitere Informationen → Trotzdem
 > ausführen*.
+
+### macOS
+
+Unter **Releases** das `HaushaltsManager-macOS.dmg` herunterladen, öffnen und
+`HaushaltsManager.app` per Drag-and-drop in den **Programme**-Ordner ziehen. Die
+Daten liegen unter `~/Library/Application Support/HaushaltsManager` und bleiben bei
+Updates/Deinstallation erhalten.
+
+> Die App ist **ad-hoc signiert** (kostenlos, ohne Apple-Developer-Konto/Notarisierung).
+> Beim ersten Start meldet der Gatekeeper einen „unbekannten Entwickler“ – dann per
+> **Rechtsklick auf die App → „Öffnen“ → „Öffnen“** einmalig bestätigen (danach startet
+> sie normal). Das entspricht der self-signed-Situation unter Windows.
+
+> **Bestehende Windows-Nutzer der v2.3.0:** Weil dieses Release erstmals auch macOS-
+> Dateien enthält, kann die automatische Update-Prüfung dieser einen Version die
+> Prüfsumme nicht sicher zuordnen und bricht dann sicherheitshalber ab. In dem Fall die
+> `HaushaltsManager-Setup.exe` bitte **einmalig manuell** von der Release-Seite laden;
+> ab v2.4.0 läuft das Auto-Update wieder normal.
 
 ## Eigene Daten vorladen (optional)
 
@@ -92,19 +113,32 @@ Kürzer geht es mit `build.ps1` – es baut den onedir-Build **und** verpackt ih
 ihn zusätzlich). `run.ps1` startet aus dem Quellcode. Für den Installer wird
 Inno Setup 6 benötigt (<https://jrsoftware.org/isdl.php>).
 
+Auf **macOS** baut `build-mac.sh` aus derselben `.spec` ein `HaushaltsManager.app`,
+signiert es ad-hoc und packt es in `dist/HaushaltsManager-macOS.dmg` (nutzt die
+Bordmittel `iconutil`/`hdiutil`).
+
 ## Update-Mechanismus
 
 Beim Start prüft die App (sofern aktiviert) über die **GitHub-Releases-API**, ob
 eine neuere Version vorliegt. Falls ja, erscheint ein nicht-blockierender Dialog
-mit den Änderungshinweisen; auf Wunsch lädt die App den **signierten Installer**
-herunter, **verifiziert die Prüfsumme** und führt ihn **still** aus – der
-Installer ersetzt die Programmdateien und startet die App neu. Ohne Internet
-startet die App ganz normal weiter. Manuelle Prüfung unter **Einstellungen → Updates**.
+mit den Änderungshinweisen; auf Wunsch lädt die App die zum **eigenen System**
+passende Datei herunter, **verifiziert die Prüfsumme** und wendet sie an:
+
+* **Windows:** der signierte Installer läuft **still** (Authenticode-Signatur wird
+  vorher gegen einen gepinnten Fingerabdruck geprüft, fail-closed), ersetzt die
+  Programmdateien und startet die App neu.
+* **macOS:** das `.dmg` wird gemountet und die App tauscht ihr `.app`-Bundle über
+  ein kurzes Hilfsskript selbst aus und startet neu. Da die ad-hoc-Signatur keine
+  pinbare Identität hat, ist hier die **Prüfsumme Pflicht** (fehlt sie, wird das
+  Update sicherheitshalber abgebrochen).
+
+Ohne Internet startet die App normal weiter. Manuelle Prüfung unter
+**Einstellungen → Updates**.
 
 Ein neues Release wird über einen Git-Tag/Release angestoßen; der
-GitHub-Actions-Workflow [`release.yml`](.github/workflows/release.yml) baut den
-onedir-Build, schnürt den Installer, **signiert** ihn und hängt
-`HaushaltsManager-Setup.exe` + `.sha256` ans Release.
+GitHub-Actions-Workflow [`release.yml`](.github/workflows/release.yml) baut **beide
+Plattformen aus derselben Quelle** (100% Parität): macOS (`.dmg`) und Windows
+(signierter `.exe`-Installer), je mit `.sha256`.
 
 ## Projektstruktur
 

@@ -19,12 +19,14 @@ from __future__ import annotations
 import json
 import os
 import re
+import shlex
 import ssl
 import subprocess
 import sys
 import tempfile
 import urllib.request
 from dataclasses import dataclass
+from pathlib import Path
 from urllib.parse import urlparse
 
 from PyQt6.QtCore import QThread, pyqtSignal
@@ -60,10 +62,16 @@ def cleanup_temp_downloads() -> None:
     files on the next start instead, so they do not accumulate over updates.
     """
     import glob
+    import shutil
     try:
-        pattern = os.path.join(tempfile.gettempdir(), "HaushaltsManager-update-*")
-        for path in glob.glob(pattern):
-            _safe_remove(path)
+        tmp = tempfile.gettempdir()
+        for prefix in ("HaushaltsManager-update-", "HaushaltsManager-swap-",
+                       "HaushaltsManager-stage-", "HaushaltsManager-mnt-"):
+            for path in glob.glob(os.path.join(tmp, prefix + "*")):
+                if os.path.isdir(path):
+                    shutil.rmtree(path, ignore_errors=True)
+                else:
+                    _safe_remove(path)
     except Exception:  # noqa: BLE001 - cosmetic cleanup, must never block startup
         pass
 
@@ -73,7 +81,7 @@ class UpdateInfo:
     version: str            # tag without leading "v"
     tag: str
     notes: str              # release body / changelog
-    asset_url: str          # browser_download_url of the .exe asset
+    asset_url: str          # browser_download_url of the platform binary (.exe / .dmg)
     html_url: str           # release page (fallback link)
     hash_url: str = ""      # browser_download_url of the .sha256 asset (optional)
 
@@ -99,6 +107,31 @@ def _https_github(url: str) -> bool:
         host == h or host.endswith("." + h) for h in _ALLOWED_HOSTS)
 
 
+def _select_asset_and_checksum(assets: list, want_ext: str) -> tuple[str, str]:
+    """Pick the platform binary (by extension) and its matching ``.sha256``.
+
+    A release can carry both the Windows installer (.exe) and the macOS disk
+    image (.dmg). The checksum is matched to the chosen binary BY NAME
+    (``<binary>.sha256``) so the two platforms' assets are never mixed up,
+    regardless of upload order. Returns ``(asset_url, hash_url)`` (either "").
+    """
+    asset_url = ""
+    binary_name = ""
+    for asset in assets:
+        name = asset.get("name") or ""
+        if name.lower().endswith(want_ext) and not asset_url:
+            binary_name = name
+            asset_url = asset.get("browser_download_url", "")
+    hash_url = ""
+    if binary_name:
+        want_hash = (binary_name + ".sha256").lower()
+        for asset in assets:
+            if (asset.get("name") or "").lower() == want_hash:
+                hash_url = asset.get("browser_download_url", "")
+                break
+    return asset_url, hash_url
+
+
 def check_for_update(repo: str, current_version: str) -> UpdateInfo | None:
     """Query the latest release. Returns UpdateInfo if newer, else None.
 
@@ -121,14 +154,8 @@ def check_for_update(repo: str, current_version: str) -> UpdateInfo | None:
     if not tag or not is_newer(tag, current_version):
         return None
 
-    asset_url = ""
-    hash_url = ""
-    for asset in data.get("assets", []):
-        name = (asset.get("name") or "").lower()
-        if name.endswith(".sha256"):
-            hash_url = asset.get("browser_download_url", "")
-        elif name.endswith(".exe") and not asset_url:
-            asset_url = asset.get("browser_download_url", "")
+    want_ext = ".dmg" if sys.platform == "darwin" else ".exe"
+    asset_url, hash_url = _select_asset_and_checksum(data.get("assets", []), want_ext)
 
     return UpdateInfo(
         version=tag.lstrip("vV"),
@@ -192,7 +219,8 @@ def download_asset(asset_url: str, progress_cb=None, should_interrupt=None) -> s
         raise ValueError("Unsichere oder unbekannte Download-Adresse.")
     req = urllib.request.Request(asset_url, headers={"User-Agent": _USER_AGENT})
     ctx = ssl.create_default_context()
-    fd, tmp_path = tempfile.mkstemp(suffix=".exe", prefix="HaushaltsManager-update-")
+    suffix = ".dmg" if sys.platform == "darwin" else ".exe"
+    fd, tmp_path = tempfile.mkstemp(suffix=suffix, prefix="HaushaltsManager-update-")
     os.close(fd)
     try:
         with urllib.request.urlopen(req, timeout=30, context=ctx) as resp:
@@ -279,25 +307,124 @@ def is_trusted_installer(path: str) -> bool:
     return bool(thumbprint and thumbprint.upper() in _TRUSTED_CERT_THUMBPRINTS)
 
 
-def apply_update_and_restart(installer_path: str) -> bool:
-    """Run the downloaded installer silently to update in place, then relaunch.
+def _write_macos_swap_script(pid: int, stage: Path, bundle: Path) -> str:
+    """Write a detached bash script that swaps the .app bundle after the app quits.
 
-    The release asset is an Inno Setup installer (HaushaltsManager-Setup.exe).
-    We launch it with /VERYSILENT; the installer closes the running app (via the
-    Windows Restart Manager / CloseApplications), replaces the program files and
-    relaunches the app through its [Run] entry. The caller must quit the app
-    right after this returns True so the files are not locked.
-
-    Only effective in a frozen build. Before launching, the installer's
-    Authenticode signature is verified against a pinned certificate thumbprint
-    and the update is aborted fail-closed if it does not match. Returns True only
-    if the installer was actually started (never raises — honours the module's
-    never-raises contract).
+    It waits (bounded) for the running process to exit, moves the old bundle
+    aside, copies the staged new one into place, restores the old one if the copy
+    fails, and relaunches — so a failed swap never leaves the user without a
+    working app. All values are shell-quoted (paths may contain spaces).
     """
-    if not is_frozen():
-        _log.info("apply_update im Dev-Modus übersprungen (nur als Installer wirksam).")
+    header = (
+        "#!/bin/bash\n"
+        f"pid={pid}\n"
+        f"stage={shlex.quote(str(stage))}\n"
+        f"bundle={shlex.quote(str(bundle))}\n"
+    )
+    body = (
+        'tmpold="${bundle}.old-$$"\n'
+        '# Wait up to ~40s for the running app to exit so its files are free.\n'
+        'for _ in $(seq 1 160); do kill -0 "$pid" 2>/dev/null || break; sleep 0.25; done\n'
+        'if mv "$bundle" "$tmpold" 2>/dev/null; then\n'
+        '  if ditto "$stage" "$bundle" 2>/dev/null; then\n'
+        '    rm -rf "$tmpold"\n'
+        '  else\n'
+        '    rm -rf "$bundle" 2>/dev/null; mv "$tmpold" "$bundle" 2>/dev/null\n'
+        '  fi\n'
+        'fi\n'
+        'rm -rf "$stage" 2>/dev/null\n'
+        'xattr -dr com.apple.quarantine "$bundle" 2>/dev/null || true\n'
+        'open "$bundle" 2>/dev/null || true\n'
+    )
+    fd, path = tempfile.mkstemp(suffix=".sh", prefix="HaushaltsManager-swap-")
+    with os.fdopen(fd, "w", encoding="utf-8") as fh:
+        fh.write(header + body)
+    os.chmod(path, 0o755)
+    return path
+
+
+def _apply_update_macos(dmg_path: str) -> bool:
+    """Fully automatic macOS update: mount the .dmg, stage the new .app, then swap
+    the running bundle in place via a detached helper and relaunch.
+
+    Integrity anchor: the download's SHA-256 was already verified over TLS against
+    the release's .sha256 (a mismatch aborts before we get here). The ad-hoc-signed
+    build has no Developer-ID identity to pin (unlike the Windows Authenticode
+    check), so ``codesign --verify`` on the new bundle is run only as an advisory
+    tamper check. Returns True only if the swap was scheduled; the caller then quits.
+    """
+    mount_dir = None
+    try:
+        exe = Path(sys.executable)
+        bundle = exe.parents[2] if exe.parent.name == "MacOS" and len(exe.parents) >= 3 else None
+        if bundle is None or bundle.suffix != ".app" or not bundle.exists():
+            _log.info("macOS-Update übersprungen: kein .app-Bundle erkannt (Dev-Modus?).")
+            return False
+
+        # Everything below is inside the try (incl. mkdtemp) so a failing temp-dir
+        # creation (full disk / unwritable TMPDIR) cannot break the never-raises contract.
+        mount_dir = tempfile.mkdtemp(prefix="HaushaltsManager-mnt-")
+        stage = Path(tempfile.mkdtemp(prefix="HaushaltsManager-stage-")) / bundle.name
+        subprocess.run(["hdiutil", "attach", "-nobrowse", "-quiet",
+                        "-mountpoint", mount_dir, dmg_path],
+                       check=True, timeout=120, capture_output=True)
+        try:
+            apps = sorted(Path(mount_dir).glob("*.app"))
+            if not apps:
+                _log.warning("macOS-Update: keine .app im Disk-Image gefunden.")
+                return False
+            subprocess.run(["ditto", str(apps[0]), str(stage)],
+                           check=True, timeout=180, capture_output=True)
+        finally:
+            subprocess.run(["hdiutil", "detach", "-quiet", mount_dir],
+                           check=False, timeout=60, capture_output=True)
+
+        # Advisory integrity check (ad-hoc signature has no pinned identity).
+        verify = subprocess.run(["codesign", "--verify", "--deep", str(stage)],
+                                capture_output=True, timeout=60)
+        if verify.returncode != 0:
+            _log.info("macOS-Update: codesign-Prüfung meldete Abweichungen (ad-hoc, nur Hinweis).")
+
+        script = _write_macos_swap_script(os.getpid(), stage, bundle)
+        subprocess.Popen(["/bin/bash", script], close_fds=True, start_new_session=True,
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        _log.info("macOS-Update: Bundle-Austausch geplant für %s", bundle)
+        return True
+    except Exception as exc:  # noqa: BLE001 - honour the never-raises contract
+        _log.warning("macOS-Update fehlgeschlagen: %s", exc)
+        if mount_dir:
+            try:
+                subprocess.run(["hdiutil", "detach", "-quiet", mount_dir],
+                               check=False, timeout=60, capture_output=True)
+            except Exception:  # noqa: BLE001
+                pass
         return False
 
+
+def apply_update_and_restart(installer_path: str) -> bool:
+    """Apply the downloaded update and relaunch. Windows + macOS.
+
+    Windows: the asset is an Inno Setup installer (HaushaltsManager-Setup.exe);
+    launched with /VERYSILENT it closes the running app (Restart Manager),
+    replaces the program files and relaunches via its [Run] entry. Before
+    launching, its Authenticode signature is verified against a pinned certificate
+    thumbprint (fail-closed).
+
+    macOS: the asset is a .dmg; the new .app is staged and swapped in place by a
+    detached helper (see :func:`_apply_update_macos`), with the download's SHA-256
+    as the integrity anchor.
+
+    Only effective in a frozen build; a dev run just reports availability. The
+    caller must quit the app right after this returns True. Never raises.
+    """
+    if not is_frozen():
+        _log.info("apply_update im Dev-Modus übersprungen (nur im gebauten Programm wirksam).")
+        return False
+
+    if sys.platform == "darwin":
+        return _apply_update_macos(installer_path)
+
+    # --- Windows ---
     # Fail-closed: never execute an installer that is not signed by our key.
     if not is_trusted_installer(installer_path):
         _log.warning(
@@ -358,10 +485,8 @@ class UpdateInstaller(QThread):
                 self._asset_url, self.progress.emit, self.isInterruptionRequested)
             if path is None:
                 return  # cancelled; the temp file was already removed
-            # If the release ships a checksum, verify the download against it.
-            # A mismatch is fatal (reject); a failure to fetch the checksum is
-            # only logged (HTTPS protects transport, the Authenticode check at
-            # apply time is the authoritative tamper guard).
+            # Verify the download against the release's .sha256. A mismatch is
+            # always fatal (reject).
             expected = None
             if self._hash_url:
                 try:
@@ -369,6 +494,16 @@ class UpdateInstaller(QThread):
                 except Exception as exc:  # noqa: BLE001
                     _log.info("Prüfsummen-Abruf übersprungen: %s", exc)
                     expected = None
+            # On macOS the checksum is the ONLY integrity anchor (an ad-hoc build
+            # has no pinned signature to fall back on, unlike the Windows
+            # Authenticode check), so a missing/unfetchable checksum must fail
+            # CLOSED there instead of being accepted on HTTPS trust alone.
+            if sys.platform == "darwin" and not expected:
+                _safe_remove(path)
+                self.failed.emit(
+                    "Die Prüfsumme des Updates konnte nicht bestätigt werden. "
+                    "Das Update wurde aus Sicherheitsgründen abgebrochen.")
+                return
             if not verify_download(path, expected):
                 _safe_remove(path)
                 self.failed.emit(
