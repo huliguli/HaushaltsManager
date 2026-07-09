@@ -44,20 +44,16 @@ def soft_shadow(widget: QWidget, color_rgba: str = "rgba(20,30,50,0.10)") -> Non
     widget.setGraphicsEffect(effect)
 
 
-def primary_button(text: str, colors: dict) -> QPushButton:
-    """A primary-styled button whose blue fill is set INLINE from the theme.
+def primary_button_qss(colors: dict) -> str:
+    """Inline stylesheet for a primary button (fill follows the theme).
 
     The global ``QPushButton#Primary`` rule does not get painted by
     ``QWidget.render()``/``grab()`` when the button sits on a ``background:
-    transparent`` ancestor (e.g. the scrollable results areas of the calculators),
-    so buttons placed there must carry their own background. Rebuild it with the
-    current ``colors`` on each render so it still follows the light/dark theme.
+    transparent`` ancestor (e.g. scrollable view containers), so buttons
+    placed there must carry their own background inline.
     """
-    btn = QPushButton(text)
-    btn.setObjectName("Primary")
-    btn.setCursor(Qt.CursorShape.PointingHandCursor)
     c = colors
-    btn.setStyleSheet(
+    return (
         f"QPushButton{{background:{c['primary_btn']};color:{c['on_primary']};"
         f"border:1px solid {c['primary_btn']};border-radius:10px;padding:9px 16px;"
         f"font-weight:600;min-height:18px;}}"
@@ -65,6 +61,18 @@ def primary_button(text: str, colors: dict) -> QPushButton:
         f"border-color:{c['primary_btn_hover']};}}"
         f"QPushButton:pressed{{background:{c['primary_btn_press']};"
         f"border-color:{c['primary_btn_press']};}}")
+
+
+def primary_button(text: str, colors: dict) -> QPushButton:
+    """A primary-styled button whose blue fill is set INLINE from the theme.
+
+    See :func:`primary_button_qss` for why the fill must be inline. Rebuild
+    with the current ``colors`` on each render so it follows light/dark.
+    """
+    btn = QPushButton(text)
+    btn.setObjectName("Primary")
+    btn.setCursor(Qt.CursorShape.PointingHandCursor)
+    btn.setStyleSheet(primary_button_qss(colors))
     return btn
 
 

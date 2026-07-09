@@ -72,11 +72,16 @@ def main() -> int:
     sys.excepthook = excepthook
 
     try:
-        db = Database()
+        db = _open_database()
+        if db is None:
+            return 1
         config = Config()
         from modules.seed import seed_if_empty
         if seed_if_empty(db):
             log.info("Datenbank mit Startdaten befüllt (erster Start).")
+        # Automatic safety net: one snapshot per day, never blocks the start.
+        from modules import backup
+        backup.startup_backup(db.conn, backup.backups_dir(db.path))
         ctx = AppContext(db, config)
     except Exception as exc:  # noqa: BLE001
         log.exception("Start fehlgeschlagen")
@@ -107,6 +112,51 @@ def main() -> int:
         QTimer.singleShot(1500, _smoke)
 
     return app.exec()
+
+
+def _open_database() -> Database | None:
+    """Open the database; on corruption offer to restore the newest backup.
+
+    Returns None when the app cannot continue (user declined or recovery
+    failed) — the caller shows no further message in that case, every path
+    here already told the user what happened.
+    """
+    from app_meta import database_path
+    from modules import backup
+    from modules.db_handler.database import DatabaseCorruptError
+
+    try:
+        return Database()
+    except DatabaseCorruptError:
+        backups = backup.list_backups(backup.backups_dir(database_path()))
+        if not backups:
+            QMessageBox.critical(
+                None, APP_DISPLAY_NAME,
+                "Die Datenbank ist beschädigt und kann nicht geöffnet werden.\n\n"
+                "Es ist keine Sicherung vorhanden. Wenn du die Datei "
+                f"{database_path().name} umbenennst, startet das Programm mit "
+                "einer leeren Datenbank.")
+            return None
+        newest = backups[0]
+        stamp = newest.created.strftime("%d.%m.%Y %H:%M")
+        choice = QMessageBox.warning(
+            None, APP_DISPLAY_NAME,
+            "Die Datenbank ist beschädigt und kann nicht geöffnet werden.\n\n"
+            f"Jüngste Sicherung: {stamp} ({newest.label_text}).\n"
+            "Soll diese Sicherung wiederhergestellt werden? Die beschädigte "
+            "Datei wird nicht gelöscht, sondern umbenannt.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.Yes)
+        if choice != QMessageBox.StandardButton.Yes:
+            return None
+        try:
+            backup.replace_database_file(database_path(), newest.path)
+            return Database()
+        except Exception as exc:  # noqa: BLE001
+            QMessageBox.critical(
+                None, APP_DISPLAY_NAME,
+                f"Die Wiederherstellung ist fehlgeschlagen:\n{exc}")
+            return None
 
 
 def _maybe_first_run(ctx: AppContext, window: MainWindow) -> None:

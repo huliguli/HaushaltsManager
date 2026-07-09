@@ -19,6 +19,19 @@ _log = get_logger("db")
 
 CURRENT_SCHEMA_VERSION = 3
 
+
+class DatabaseCorruptError(RuntimeError):
+    """The database file failed its integrity check on open."""
+
+
+class SchemaTooNewError(RuntimeError):
+    """The database was written by a NEWER app version.
+
+    Running old code against a newer schema is undefined behaviour (missing
+    columns, half-understood data), so the open is refused instead — the data
+    stays untouched and the message tells the user what to do.
+    """
+
 # Every table that holds user-entered or imported financial data. The single
 # source of truth for the "delete all data" reset — a new table must be added
 # here so the reset can never leave orphaned rows behind (schema_version and the
@@ -64,14 +77,81 @@ class Database:
         # may touch the DB; we serialise access from the UI in practice.
         self.conn = sqlite3.connect(self.path, check_same_thread=False)
         self.conn.row_factory = sqlite3.Row
-        self.conn.execute("PRAGMA foreign_keys = ON")
-        self.conn.execute("PRAGMA journal_mode = WAL")
-        # Column presence per table is static (schema is fixed at v1); cache it so
-        # every UPDATE does not re-run PRAGMA table_info just to touch updated_at.
-        self._column_cache: dict[str, set[str]] = {}
-        self._initialise()
+        try:
+            try:
+                self.conn.execute("PRAGMA foreign_keys = ON")
+                # journal_mode reads the file header, so a non-database file
+                # already fails here — surface it as the same corruption error.
+                self.conn.execute("PRAGMA journal_mode = WAL")
+            except sqlite3.DatabaseError as exc:
+                raise DatabaseCorruptError(
+                    "Die Datenbank ist beschädigt und kann nicht geöffnet "
+                    f"werden.\nDatei: {self.path}") from exc
+            self._guard_before_schema_work()
+            # Column presence per table is static (schema is fixed at v1); cache
+            # it so UPDATEs do not re-run PRAGMA table_info to touch updated_at.
+            self._column_cache: dict[str, set[str]] = {}
+            self._initialise()
+        except BaseException:
+            # A failed open must not keep the file locked — the recovery path
+            # (rename aside + restore a backup) needs the handle released,
+            # especially on Windows where open files cannot be renamed.
+            self.conn.close()
+            raise
 
     # -- schema -------------------------------------------------------------
+    def _guard_before_schema_work(self) -> None:
+        """Integrity check, downgrade guard and pre-migration backup.
+
+        Runs BEFORE ``executescript``/``_migrate`` ever touch the file: a
+        corrupt database or one written by a newer app version must be
+        refused while its bytes are still exactly as found on disk.
+        """
+        from modules import backup
+
+        if not backup.integrity_ok(self.conn):
+            raise DatabaseCorruptError(
+                "Die Datenbank ist beschädigt und kann nicht geöffnet werden.\n"
+                f"Datei: {self.path}")
+        stored = self._stored_schema_version()
+        if stored is not None and stored > CURRENT_SCHEMA_VERSION:
+            raise SchemaTooNewError(
+                "Die Daten wurden mit einer neueren Programmversion "
+                f"gespeichert (Datenstand v{stored}, dieses Programm kennt "
+                f"v{CURRENT_SCHEMA_VERSION}).\nBitte installiere die aktuelle "
+                "Version des HaushaltsManagers — deine Daten bleiben unverändert.")
+        if stored is not None and stored < CURRENT_SCHEMA_VERSION:
+            # Snapshot before the (additive) migration runs. A failing backup
+            # is logged but does not block the start: migrations are additive
+            # by contract, and refusing to start over an unwritable backups
+            # folder would lock the user out of their own data.
+            try:
+                backup.create_backup(
+                    self.conn, label="vor-migration",
+                    directory=backup.backups_dir(self.path))
+            except Exception as exc:  # noqa: BLE001
+                _log.warning("Backup vor Migration fehlgeschlagen: %s", exc)
+
+    def _stored_schema_version(self) -> int | None:
+        """Schema version recorded in the file (None on a fresh database)."""
+        try:
+            row = self.conn.execute(
+                "SELECT version FROM schema_version LIMIT 1").fetchone()
+        except sqlite3.OperationalError:
+            return None  # table missing = fresh database
+        return int(row["version"]) if row else None
+
+    def reinitialise_after_restore(self) -> None:
+        """Re-run schema setup after a backup was restored into the connection.
+
+        A restored snapshot may predate the current schema, so the same
+        idempotent path as a normal open runs again (CREATE IF NOT EXISTS +
+        guarded migrations). The cached column info is stale after the
+        content swap and must be rebuilt.
+        """
+        self._column_cache.clear()
+        self._initialise()
+
     def _initialise(self) -> None:
         with open(schema_path(), "r", encoding="utf-8") as fh:
             self.conn.executescript(fh.read())

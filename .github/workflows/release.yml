@@ -137,13 +137,40 @@ jobs:
       - name: Anwendung bauen (onedir)
         run: python -m PyInstaller --noconfirm --clean HaushaltsManager.spec
 
-      - name: Zertifikat vorbereiten (falls hinterlegt)
+      # Symmetric to the macOS bundle smoke: the BUILT program must start and
+      # render headlessly. Catches the onedir/DLL failure class right where it
+      # would bite (the packaged exe), not in the source tree.
+      - name: Headless-Smoke (gebautes Programm startet + rendert)
+        shell: pwsh
+        timeout-minutes: 5
+        run: |
+          $env:QT_QPA_PLATFORM = "offscreen"
+          $env:HM_SMOKE = "1"; $env:HM_VIEW = "0"; $env:HM_THEME = "light"
+          $env:HM_SHOT = Join-Path $env:RUNNER_TEMP "smoke.png"
+          $env:APPDATA = Join-Path $env:RUNNER_TEMP "hm-appdata"
+          New-Item -ItemType Directory -Force $env:APPDATA | Out-Null
+          $p = Start-Process -FilePath dist\HaushaltsManager\HaushaltsManager.exe -PassThru -Wait -NoNewWindow
+          if ($p.ExitCode -ne 0) { Write-Error "Smoke-Lauf endete mit Exitcode $($p.ExitCode)"; exit 1 }
+          if (-not (Test-Path $env:HM_SHOT)) { Write-Error "Smoke-Screenshot fehlt - Build defekt"; exit 1 }
+          Write-Host "Smoke ok"
+
+      # Release gate: a RELEASE build without the signing certificate would
+      # upload an UNSIGNED installer that every existing client rejects
+      # fail-closed (thumbprint pinning) - auto-update would silently die.
+      # Manual dispatch runs may still build unsigned artefacts for testing.
+      - name: Zertifikat vorbereiten (bei Release Pflicht)
         shell: pwsh
         env:
           PFX_B64: ${{ secrets.CODESIGN_PFX_BASE64 }}
         run: |
-          if ($env:PFX_B64) { [IO.File]::WriteAllBytes("cert.pfx", [Convert]::FromBase64String($env:PFX_B64)) }
-          else { Write-Host "Kein Signatur-Zertifikat hinterlegt." }
+          if ($env:PFX_B64) {
+            [IO.File]::WriteAllBytes("cert.pfx", [Convert]::FromBase64String($env:PFX_B64))
+          } elseif ('${{ github.event_name }}' -eq 'release') {
+            Write-Error "Secret CODESIGN_PFX_BASE64 fehlt - ein unsigniertes Release wuerde jedes Auto-Update dauerhaft stoppen. Abbruch."
+            exit 1
+          } else {
+            Write-Host "Kein Signatur-Zertifikat hinterlegt (Testlauf ohne Signierung)."
+          }
 
       - name: Inneres Programm signieren
         shell: pwsh
@@ -175,6 +202,31 @@ jobs:
           catch { $ok = $false; Write-Host "Signieren fehlgeschlagen: $_" }
           if (-not $ok) { exit 1 }
           exit 0
+
+      # Post-build verification against the pin the CLIENTS enforce: the
+      # installer must carry exactly one of the thumbprints hardcoded in
+      # updater.py (_TRUSTED_CERT_THUMBPRINTS). Reads the pin from the source
+      # so workflow and app can never drift apart. The runner does not trust
+      # the self-signed root, so 'UnknownError' (untrusted chain, hash intact)
+      # is accepted - exactly like the app itself, which pins the thumbprint.
+      - name: Signatur gegen Client-Pin verifizieren
+        if: github.event_name == 'release'
+        shell: pwsh
+        run: |
+          $src = Get-Content src/modules/updater/updater.py -Raw
+          $block = [regex]::Match($src, '_TRUSTED_CERT_THUMBPRINTS\s*=\s*\(([^)]*)\)').Groups[1].Value
+          $pins = [regex]::Matches($block, '"([0-9A-Fa-f]{40})"') | ForEach-Object { $_.Groups[1].Value.ToUpper() }
+          if (-not $pins) { Write-Error "Kein gepinnter Thumbprint in updater.py gefunden."; exit 1 }
+          $sig = Get-AuthenticodeSignature dist\HaushaltsManager-Setup.exe
+          if ($sig.Status -notin @('Valid', 'UnknownError')) {
+            Write-Error "Installer-Signatur ungueltig oder fehlt: $($sig.Status)"; exit 1
+          }
+          if (-not $sig.SignerCertificate) { Write-Error "Installer traegt keine Signatur."; exit 1 }
+          $tp = $sig.SignerCertificate.Thumbprint.ToUpper()
+          if ($pins -notcontains $tp) {
+            Write-Error "Thumbprint $tp entspricht keinem Client-Pin ($($pins -join ', ')) - Bestands-Clients wuerden das Update ablehnen."; exit 1
+          }
+          Write-Host "Signatur ok, Thumbprint gepinnt: $tp"
 
       - name: Aufräumen + SHA-256 (über die signierte Datei)
         shell: pwsh

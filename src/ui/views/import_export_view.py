@@ -265,6 +265,22 @@ class ImportExportView(BaseView):
         The routing lives in the Qt-free :func:`commit_transactions` so it can be
         regression-tested (imported credit -> one-off income, never recurring).
         """
+        # Snapshot before the import lands, so a mistaken confirmation can be
+        # undone via Einstellungen -> Datensicherung. The import itself is
+        # additive, so a failing backup asks instead of silently proceeding.
+        from modules import backup
+        try:
+            backup.create_backup(
+                self.ctx.db.conn, label="vor-import",
+                directory=backup.backups_dir(self.ctx.db.path))
+        except backup.BackupError as exc:
+            if QMessageBox.warning(
+                self, "Sicherung fehlgeschlagen",
+                f"Vor dem Import konnte keine Sicherung erstellt werden:\n{exc}\n\n"
+                "Trotzdem importieren?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No) != QMessageBox.StandardButton.Yes:
+                return
         n_exp, n_inc = commit_transactions(
             transactions, self.ctx.expenses, self.ctx.var_income,
             self.ctx.import_rules, self.ctx.import_log)

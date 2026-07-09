@@ -5,22 +5,27 @@ from __future__ import annotations
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
     QCheckBox,
+    QDialog,
     QFrame,
     QHBoxLayout,
     QLabel,
+    QListWidget,
+    QListWidgetItem,
     QMessageBox,
     QProgressDialog,
     QPushButton,
+    QScrollArea,
     QVBoxLayout,
     QWidget,
 )
 
 from app_meta import APP_DISPLAY_NAME, APP_VERSION, GITHUB_REPO, data_dir, logs_dir
-from modules import platform_util
+from modules import backup, platform_util
+from modules.db_handler.database import CURRENT_SCHEMA_VERSION
 from modules.updater import updater
 from ui.views.base_view import BaseView
 from ui.wizard import run_wizard
-from ui.widgets.common import heading, muted
+from ui.widgets.common import heading, muted, primary_button_qss
 
 
 class EinstellungenView(BaseView):
@@ -28,8 +33,22 @@ class EinstellungenView(BaseView):
         super().__init__(ctx)
         self._checker = None
         self._installer = None
+        self._primary_row_btns: list[QPushButton] = []
 
-        layout = QVBoxLayout(self)
+        # Six cards no longer fit a small window, so the whole view scrolls
+        # (same transparent pattern as the dashboard).
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setStyleSheet("QScrollArea { background: transparent; border: none; }")
+        outer.addWidget(scroll)
+        container = QWidget()
+        container.setStyleSheet("background: transparent;")
+        scroll.setWidget(container)
+
+        layout = QVBoxLayout(container)
         layout.setContentsMargins(30, 26, 30, 24)
         layout.setSpacing(16)
         layout.addWidget(heading("Einstellungen"))
@@ -38,6 +57,7 @@ class EinstellungenView(BaseView):
         layout.addWidget(self._design_card())
         layout.addWidget(self._update_card())
         layout.addWidget(self._import_card())
+        layout.addWidget(self._backup_card())
         layout.addWidget(self._data_card())
         layout.addWidget(self._about_card())
         layout.addStretch(1)
@@ -65,6 +85,13 @@ class EinstellungenView(BaseView):
         self._dark_btn.setChecked(is_dark)
         self._light_btn.setObjectName("Primary" if not is_dark else "Ghost")
         self._dark_btn.setObjectName("Primary" if is_dark else "Ghost")
+        # The active button carries its fill INLINE: the view now lives on a
+        # transparent scroll container, where the global #Primary rule does
+        # not get painted (see common.primary_button_qss).
+        active = self._dark_btn if is_dark else self._light_btn
+        inactive = self._light_btn if is_dark else self._dark_btn
+        active.setStyleSheet(primary_button_qss(self.ctx.colors))
+        inactive.setStyleSheet("")
         # Re-polish so the objectName change takes effect.
         for btn in (self._light_btn, self._dark_btn):
             btn.style().unpolish(btn)
@@ -189,6 +216,81 @@ class EinstellungenView(BaseView):
         from ui.bank_import_dialogs import BankProfilesDialog
         BankProfilesDialog(self.ctx.bank_profiles, self).exec()
 
+    # -- backups ------------------------------------------------------------
+    def _backup_card(self) -> QFrame:
+        card, layout = self._card("Datensicherung")
+        self._add_action_row(layout, "Sicherungskopie der Datenbank erstellen",
+                             "Backup erstellen", self._backup_now, "Ghost")
+        self._add_action_row(layout, "Daten aus einer Sicherung wiederherstellen",
+                             "Wiederherstellen …", self._restore_backup, "Ghost")
+        self._add_action_row(layout, "Ordner mit den Sicherungen öffnen",
+                             "Ordner öffnen",
+                             lambda: self._open(backup.backups_dir(self.ctx.db.path)),
+                             "Ghost")
+        hint = QLabel(
+            "Automatische Sicherungen: täglich beim Start sowie vor "
+            "Kontoauszug-Import, Daten-Aktualisierung und Löschen. "
+            f"Die letzten {backup.MAX_BACKUPS} Sicherungen werden aufbewahrt.")
+        hint.setObjectName("Faint")
+        hint.setWordWrap(True)
+        layout.addWidget(hint)
+        return card
+
+    def _backup_now(self) -> None:
+        try:
+            path = backup.create_backup(
+                self.ctx.db.conn, label="manuell",
+                directory=backup.backups_dir(self.ctx.db.path))
+        except backup.BackupError as exc:
+            QMessageBox.warning(self, "Backup fehlgeschlagen", str(exc))
+            return
+        QMessageBox.information(
+            self, "Backup erstellt",
+            f"Die Sicherung wurde erstellt:\n{path.name}")
+
+    def _restore_backup(self) -> None:
+        backups = backup.list_backups(backup.backups_dir(self.ctx.db.path))
+        if not backups:
+            QMessageBox.information(
+                self, "Keine Sicherungen",
+                "Es sind noch keine Sicherungen vorhanden. Beim nächsten "
+                "Programmstart wird automatisch eine erstellt.")
+            return
+        chosen = _RestoreDialog.pick(backups, self)
+        if chosen is None:
+            return
+        # Never restore data written by a NEWER app version into this one.
+        version = backup.backup_schema_version(chosen.path)
+        if version is not None and version > CURRENT_SCHEMA_VERSION:
+            QMessageBox.warning(
+                self, "Wiederherstellung nicht möglich",
+                "Diese Sicherung stammt von einer neueren Programmversion. "
+                "Bitte aktualisiere zuerst den HaushaltsManager.")
+            return
+        stamp = chosen.created.strftime("%d.%m.%Y %H:%M")
+        if QMessageBox.warning(
+            self, "Wiederherstellen",
+            f"Alle aktuellen Daten durch die Sicherung vom {stamp} ersetzen?\n"
+            "Der jetzige Stand wird vorher automatisch gesichert.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No) != QMessageBox.StandardButton.Yes:
+            return
+        try:
+            # Fail closed: without the safety snapshot of the CURRENT state,
+            # no restore happens.
+            backup.create_backup(
+                self.ctx.db.conn, label="vor-wiederherstellung",
+                directory=backup.backups_dir(self.ctx.db.path))
+            backup.restore_into_connection(self.ctx.db.conn, chosen.path)
+            self.ctx.db.reinitialise_after_restore()
+        except backup.BackupError as exc:
+            QMessageBox.warning(self, "Wiederherstellung fehlgeschlagen", str(exc))
+            return
+        self.ctx.notify_changed()
+        QMessageBox.information(
+            self, "Wiederhergestellt",
+            f"Die Daten wurden auf den Stand vom {stamp} zurückgesetzt.")
+
     # -- data ---------------------------------------------------------------
     def _data_card(self) -> QFrame:
         card, layout = self._card("Daten")
@@ -218,6 +320,11 @@ class EinstellungenView(BaseView):
         btn.setMinimumWidth(168)
         btn.setCursor(Qt.CursorShape.PointingHandCursor)
         btn.clicked.connect(slot)
+        if kind == "Primary":
+            # Inline fill (transparent scroll ancestor, see _sync_theme_buttons);
+            # re-styled on theme change via _primary_row_btns.
+            btn.setStyleSheet(primary_button_qss(self.ctx.colors))
+            self._primary_row_btns.append(btn)
         row.addWidget(btn)
         layout.addLayout(row)
 
@@ -234,11 +341,26 @@ class EinstellungenView(BaseView):
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No) != QMessageBox.StandardButton.Yes:
             return
+        # Fail closed: the reset is irreversible, so it only runs once a
+        # snapshot of the current state exists.
+        try:
+            backup.create_backup(
+                self.ctx.db.conn, label="vor-loeschen",
+                directory=backup.backups_dir(self.ctx.db.path))
+        except backup.BackupError as exc:
+            QMessageBox.warning(
+                self, "Löschen abgebrochen",
+                "Vor dem Löschen konnte keine Sicherung erstellt werden - "
+                f"es wurde nichts gelöscht.\n\n{exc}")
+            return
         # Clears EVERY financial table (incl. one-off income, budgets, snapshots
         # and the bank-import log/rules) so no orphaned rows survive the reset.
         self.ctx.db.wipe_financial_data()
         self.ctx.notify_changed()
-        QMessageBox.information(self, "Gelöscht", "Alle Finanzdaten wurden entfernt.")
+        QMessageBox.information(
+            self, "Gelöscht",
+            "Alle Finanzdaten wurden entfernt.\nEine Sicherung des vorherigen "
+            "Stands liegt im Sicherungs-Ordner (Datensicherung).")
 
     @staticmethod
     def _open(path) -> None:
@@ -275,3 +397,46 @@ class EinstellungenView(BaseView):
 
     def on_theme_changed(self) -> None:
         self._sync_theme_buttons()
+        for btn in self._primary_row_btns:
+            btn.setStyleSheet(primary_button_qss(self.ctx.colors))
+
+
+class _RestoreDialog(QDialog):
+    """Pick one backup from a list (newest first); returns the BackupInfo."""
+
+    def __init__(self, backups, parent=None) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("Sicherung wiederherstellen")
+        self.setMinimumWidth(460)
+        self._backups = backups
+        layout = QVBoxLayout(self)
+        layout.setSpacing(10)
+        layout.addWidget(QLabel("Welche Sicherung soll wiederhergestellt werden?"))
+        self._list = QListWidget()
+        for info in backups:
+            stamp = info.created.strftime("%d.%m.%Y %H:%M")
+            size_mb = f"{info.size_bytes / 1_000_000:.1f}".replace(".", ",")
+            QListWidgetItem(f"{stamp}  ·  {info.label_text}  ·  {size_mb} MB", self._list)
+        self._list.setCurrentRow(0)
+        self._list.itemDoubleClicked.connect(lambda _i: self.accept())
+        layout.addWidget(self._list)
+        buttons = QHBoxLayout()
+        buttons.addStretch(1)
+        cancel = QPushButton("Abbrechen")
+        cancel.setObjectName("Ghost")
+        cancel.clicked.connect(self.reject)
+        buttons.addWidget(cancel)
+        ok = QPushButton("Wiederherstellen")
+        ok.setObjectName("Primary")
+        ok.setDefault(True)
+        ok.clicked.connect(self.accept)
+        buttons.addWidget(ok)
+        layout.addLayout(buttons)
+
+    @staticmethod
+    def pick(backups, parent=None):
+        dlg = _RestoreDialog(backups, parent)
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return None
+        row = dlg._list.currentRow()
+        return backups[row] if 0 <= row < len(backups) else None

@@ -37,6 +37,10 @@ werden aus **derselben Codebasis** gebaut, sodass der Funktionsumfang identisch 
   Auto-Kategorisierung, Excel-Import mit Spaltenerkennung, PDF-Import mit
   korrigierbarer Vorschau sowie **Excel-Monatsüberblick und PDF-Monatsbericht –
   für den aktuellen oder einen beliebigen vergangenen Monat** (per Monatsauswahl).
+- **Datensicherung** – automatische Backups (täglich beim Start sowie vor
+  Kontoauszug-Import, Daten-Aktualisierung und Löschen, die letzten 10 werden
+  aufbewahrt), manuelles Backup und Ein-Klick-Wiederherstellung in den
+  Einstellungen; beim Start wird die Datenbank auf Beschädigung geprüft.
 - **Hell-/Dunkel-Design**, deutsche Formate (`1.234,56 €`, `TT.MM.JJJJ`),
   gespeicherte Fenstergröße, automatische Update-Prüfung.
 

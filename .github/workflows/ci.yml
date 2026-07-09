@@ -1,0 +1,46 @@
+name: CI
+
+# Runs the full test suite on every push/PR to main — on BOTH release
+# platforms and on both relevant Python versions (3.12 = release build,
+# 3.14 = development machine), so a broken main is visible days before the
+# next release instead of seconds before it.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+        python: ["3.12", "3.14"]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Repository auschecken
+        uses: actions/checkout@v4
+
+      - name: Python einrichten
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+
+      - name: Abhängigkeiten installieren
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Quellcode kompilieren
+        run: python -m compileall -q src
+
+      - name: Tests ausführen
+        run: python -m pytest -q
