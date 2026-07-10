@@ -169,6 +169,21 @@ class VerlaufView(BaseView):
             self.ctx.summaries, months=self._months, ref=date.today())
         labels = [p.short_label for p in points]
 
+        # Empty history: no entry in the whole range. Show a clear pointer to
+        # the household book instead of a wall of misleading "0,00 €" KPIs.
+        if not any(p.income_cents or p.fixed_cents or p.variable_cents for p in points):
+            for card in (self._income_card, self._expense_card,
+                         self._saldo_card, self._saved_card):
+                card.set_value("–", c["text_faint"])
+                card.set_hint("Noch keine Daten")
+            self._income_card.set_hint(
+                "Erfasse Einnahmen und Ausgaben im Haushaltsbuch")
+            self._line_canvas.line_series([], [])
+            self._bar_canvas.bars_stacked([], [])
+            self._fill_line_legend([])
+            self._fill_bar_legend([], theme.chart_colors(c))
+            return
+
         # KPIs (averages across the range).
         n = max(1, len(points))
         avg_income = sum(p.income_cents for p in points) // n

@@ -41,6 +41,10 @@ werden aus **derselben Codebasis** gebaut, sodass der Funktionsumfang identisch 
   Kontoauszug-Import, Daten-Aktualisierung und Löschen, die letzten 10 werden
   aufbewahrt), manuelles Backup und Ein-Klick-Wiederherstellung in den
   Einstellungen; beim Start wird die Datenbank auf Beschädigung geprüft.
+- **Schnelle Bedienung** – Monatsauswahl per Klick aufs Monatslabel
+  (Monats-/Jahres-Picker) und „Heute"-Sprung; Tastatur-Kurzbefehle:
+  Strg+1–8 (Bereiche), Strg+N (neuer Eintrag), Strg+F (Ausgaben-Suche),
+  Strg+Bild↑/↓ (Monat wechseln), Entf/Enter in Tabellen, Enter rechnet.
 - **Hell-/Dunkel-Design**, deutsche Formate (`1.234,56 €`, `TT.MM.JJJJ`),
   gespeicherte Fenstergröße, automatische Update-Prüfung.
 

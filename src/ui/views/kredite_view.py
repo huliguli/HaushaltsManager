@@ -33,6 +33,7 @@ from ui.widgets.common import (
     heading,
     muted,
     pill_cell,
+    table_shortcuts,
 )
 
 _ROLE_ID = Qt.ItemDataRole.UserRole
@@ -85,14 +86,21 @@ class KrediteView(BaseView):
         self.table.setShowGrid(False)
         self.table.verticalHeader().setDefaultSectionSize(40)
         self.table.doubleClicked.connect(lambda: self._edit())
+        table_shortcuts(self.table, self._edit, self._delete)
         self._panel = TablePanel(
             self.table, "Noch keine Kredite erfasst.",
-            "Lege über „+ Kredit“ deinen ersten Eintrag an.")
+            "Lege deinen ersten Eintrag an – auch die Rechner können eine "
+            "Finanzierung direkt als Kredit übernehmen.",
+            action_text="+ Kredit anlegen", on_action=self._add)
         layout.addWidget(self._panel, 1)
 
         add.clicked.connect(self._add)
         edit.clicked.connect(self._edit)
         delete.clicked.connect(self._delete)
+
+    def create_new(self) -> bool:
+        self._add()
+        return True
 
     def refresh(self) -> None:
         colors = self.ctx.colors

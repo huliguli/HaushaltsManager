@@ -196,9 +196,12 @@ class TablePanel(QWidget):
 
     The table and the placeholder share a QStackedLayout; call
     :meth:`update_state` after (re)filling the table to switch between them.
+    An optional action button turns the empty state from a dead end into the
+    obvious next step (e.g. "+ Einnahme anlegen" opens the add dialog).
     """
 
-    def __init__(self, table: QTableWidget, message: str, hint: str = "") -> None:
+    def __init__(self, table: QTableWidget, message: str, hint: str = "",
+                 action_text: str = "", on_action=None) -> None:
         super().__init__()
         self._table = table
         self._stack = QStackedLayout(self)
@@ -218,6 +221,17 @@ class TablePanel(QWidget):
             sub.setAlignment(Qt.AlignmentFlag.AlignCenter)
             sub.setWordWrap(True)
             box.addWidget(sub)
+        if action_text and on_action is not None:
+            btn = QPushButton(action_text)
+            btn.setObjectName("Primary")
+            btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            btn.clicked.connect(on_action)
+            row = QHBoxLayout()
+            row.addStretch(1)
+            row.addWidget(btn)
+            row.addStretch(1)
+            box.addSpacing(8)
+            box.addLayout(row)
         box.addStretch(1)
 
         self._stack.addWidget(table)        # index 0: data
@@ -226,3 +240,32 @@ class TablePanel(QWidget):
 
     def update_state(self) -> None:
         self._stack.setCurrentIndex(1 if self._table.rowCount() == 0 else 0)
+
+
+def table_shortcuts(table: QTableWidget, on_edit, on_delete) -> None:
+    """Entf deletes, Enter edits the selected row — only while the table has
+    focus (WidgetShortcut), so the keys keep their meaning everywhere else."""
+    from PyQt6.QtCore import Qt as _Qt
+    from PyQt6.QtGui import QKeySequence, QShortcut
+
+    bindings = (
+        (_Qt.Key.Key_Delete, on_delete),
+        (_Qt.Key.Key_Return, on_edit),
+        (_Qt.Key.Key_Enter, on_edit),  # numpad Enter
+    )
+    for key, slot in bindings:
+        sc = QShortcut(QKeySequence(key), table)
+        sc.setContext(_Qt.ShortcutContext.WidgetShortcut)
+        sc.activated.connect(slot)
+
+
+def compute_on_enter(view: QWidget, slot) -> None:
+    """Bind Enter/Return anywhere inside ``view`` to its compute action, so
+    the calculators recalculate without reaching for the mouse."""
+    from PyQt6.QtCore import Qt as _Qt
+    from PyQt6.QtGui import QKeySequence, QShortcut
+
+    for key in (_Qt.Key.Key_Return, _Qt.Key.Key_Enter):
+        sc = QShortcut(QKeySequence(key), view)
+        sc.setContext(_Qt.ShortcutContext.WidgetWithChildrenShortcut)
+        sc.activated.connect(slot)

@@ -23,3 +23,18 @@ class BaseView(QWidget):
     def on_theme_changed(self) -> None:
         """Re-render when the theme changes (default: full refresh)."""
         self.refresh()
+
+    # -- keyboard-layer hooks (all optional) ---------------------------------
+    # The main window's app-wide shortcuts delegate to the ACTIVE view through
+    # these; a view that has nothing to offer simply inherits the defaults.
+    def create_new(self) -> bool:
+        """Ctrl+N: open this view's "new entry" dialog. True when handled."""
+        return False
+
+    def focus_search(self) -> bool:
+        """Ctrl+F: focus this view's search field. True when handled."""
+        return False
+
+    def month_navigator(self):
+        """The view's active MonthNavigator (or None) for Strg+Bild↑/↓."""
+        return None

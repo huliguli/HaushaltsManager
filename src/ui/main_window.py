@@ -8,7 +8,7 @@ sidebar re-runs the visible view's ``refresh()`` so data is always current.
 from __future__ import annotations
 
 from PyQt6.QtCore import QSize, Qt
-from PyQt6.QtGui import QCloseEvent, QIcon
+from PyQt6.QtGui import QCloseEvent, QIcon, QKeySequence, QShortcut
 from PyQt6.QtWidgets import (
     QButtonGroup,
     QHBoxLayout,
@@ -77,8 +77,50 @@ class MainWindow(QWidget):
         self.ctx.data_changed.connect(self._refresh_current)
         self.ctx.theme_changed.connect(self._on_theme_changed)
 
+        self._init_shortcuts()
         self._restore_geometry()
         self._select(0)
+
+    # -- keyboard layer -------------------------------------------------------
+    def _init_shortcuts(self) -> None:
+        """App-wide shortcuts (Qt maps Ctrl to Cmd on macOS automatically).
+
+        Strg+1..8 switch views, Strg+N opens the active view's "new entry"
+        dialog, Strg+F jumps to the expense search, Strg+Bild↑/↓ steps the
+        visible month navigator. Plain Bild↑/↓ stays untouched so tables and
+        scroll areas keep their normal page scrolling.
+        """
+        for i in range(len(_NAV)):
+            sc = QShortcut(QKeySequence(f"Ctrl+{i + 1}"), self)
+            sc.activated.connect(lambda i=i: self._select(i))
+        QShortcut(QKeySequence("Ctrl+N"), self).activated.connect(self._shortcut_new)
+        QShortcut(QKeySequence("Ctrl+F"), self).activated.connect(self._shortcut_search)
+        QShortcut(QKeySequence("Ctrl+PgUp"), self).activated.connect(
+            lambda: self._shortcut_month(-1))
+        QShortcut(QKeySequence("Ctrl+PgDown"), self).activated.connect(
+            lambda: self._shortcut_month(1))
+
+    def _current_view(self) -> BaseView:
+        return self._views[self._stack.currentIndex()]
+
+    def _shortcut_new(self) -> None:
+        self._current_view().create_new()
+
+    def _shortcut_search(self) -> None:
+        # Views with their own search handle it; otherwise jump to the
+        # household book, whose expense search is the app-wide one.
+        if self._current_view().focus_search():
+            return
+        book_index = next(
+            (i for i, (_l, _i, cls) in enumerate(_NAV) if cls is HaushaltsbuchView), None)
+        if book_index is not None:
+            self._select(book_index)
+            self._views[book_index].focus_search()
+
+    def _shortcut_month(self, delta: int) -> None:
+        nav = self._current_view().month_navigator()
+        if nav is not None and nav.isEnabled():
+            nav.step(delta)
 
     # -- sidebar ------------------------------------------------------------
     def _build_sidebar(self) -> QWidget:
@@ -104,6 +146,7 @@ class MainWindow(QWidget):
             btn = QPushButton(f"  {label}")
             btn.setObjectName("NavButton")
             btn.setCheckable(True)
+            btn.setToolTip(f"{label} (Strg+{index + 1})")
             btn.setCursor(Qt.CursorShape.PointingHandCursor)
             btn.setIcon(icons.icon(icon_name, icon_color, 20))
             btn.setIconSize(QSize(20, 20))

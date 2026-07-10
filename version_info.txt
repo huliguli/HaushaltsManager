@@ -2,8 +2,8 @@
 # Embedded into the .exe (Explorer "Details" tab / file properties).
 VSVersionInfo(
   ffi=FixedFileInfo(
-    filevers=(2, 5, 0, 0),
-    prodvers=(2, 5, 0, 0),
+    filevers=(2, 6, 0, 0),
+    prodvers=(2, 6, 0, 0),
     mask=0x3f,
     flags=0x0,
     OS=0x40004,
@@ -16,11 +16,11 @@ VSVersionInfo(
       StringTable('040704b0', [
         StringStruct('CompanyName', 'Mijonex'),
         StringStruct('FileDescription', 'HaushaltsManager'),
-        StringStruct('FileVersion', '2.5.0.0'),
+        StringStruct('FileVersion', '2.6.0.0'),
         StringStruct('InternalName', 'HaushaltsManager'),
         StringStruct('OriginalFilename', 'HaushaltsManager.exe'),
         StringStruct('ProductName', 'HaushaltsManager'),
-        StringStruct('ProductVersion', '2.5.0.0')
+        StringStruct('ProductVersion', '2.6.0.0')
       ])
     ]),
     VarFileInfo([VarStruct('Translation', [0x0407, 1200])])

@@ -338,3 +338,7 @@ class ImportExportView(BaseView):
 
     def refresh(self) -> None:
         pass
+
+    def month_navigator(self):
+        # Strg+Bild↑/↓ steps the export month picker.
+        return self._export_nav

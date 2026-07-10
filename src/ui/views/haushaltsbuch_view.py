@@ -43,6 +43,7 @@ from ui.widgets.common import (
     heading,
     muted,
     pill_cell,
+    table_shortcuts,
 )
 from ui.widgets.month_nav import MonthNavigator
 
@@ -151,9 +152,11 @@ class _IncomeTab(QWidget):
 
         self.table = _make_table(["Bezeichnung", "Art", "Betrag / Monat", "Status"])
         self.table.doubleClicked.connect(lambda: self._edit())
+        table_shortcuts(self.table, self._edit, self._delete)
         self._panel = TablePanel(
             self.table, "Noch keine Einnahmen erfasst.",
-            "Lege über „+ Einnahme“ deine erste Einnahmequelle an.")
+            "Lege deine erste Einnahmequelle an – sie zählt ab sofort in jeder Monatsübersicht.",
+            action_text="+ Einnahme anlegen", on_action=self._add)
         layout.addWidget(self._panel, 1)
 
         add.clicked.connect(self._add)
@@ -293,9 +296,11 @@ class _FixedTab(QWidget):
         self.table = _make_table(
             ["Bezeichnung", "Kategorie", "Betrag / Monat", "Ende", "Status"])
         self.table.doubleClicked.connect(lambda: self._edit())
+        table_shortcuts(self.table, self._edit, self._delete)
         self._panel = TablePanel(
             self.table, "Keine Fixkosten in dieser Ansicht.",
-            "Lege über „+ Fixkosten“ einen Eintrag an oder ändere den Filter.")
+            "Lege einen Eintrag an oder ändere den Filter.",
+            action_text="+ Fixkosten anlegen", on_action=self._add)
         layout.addWidget(self._panel, 1)
 
         add.clicked.connect(self._add)
@@ -433,9 +438,11 @@ class _ExpensesTab(QWidget):
         self.table = _make_table(["Datum", "Kategorie", "Beschreibung", "Betrag"])
         self.table.setSortingEnabled(True)   # click a header to sort (correct numeric/date order)
         self.table.doubleClicked.connect(lambda: self._edit())
+        table_shortcuts(self.table, self._edit, self._delete)
         self._panel = TablePanel(
             self.table, "Keine Ausgaben gefunden.",
-            "Erfasse über „+ Ausgabe“ eine Ausgabe – oder ändere Monat, Suche oder Filter.")
+            "Erfasse eine Ausgabe – oder ändere Monat, Suche oder Filter.",
+            action_text="+ Ausgabe erfassen", on_action=self._add)
         layout.addWidget(self._panel, 1)
 
         add.clicked.connect(self._add)
@@ -568,3 +575,23 @@ class HaushaltsbuchView(BaseView):
         widget = self.tabs.currentWidget()
         if widget is not None:
             widget.refresh()
+
+    # -- keyboard-layer hooks -------------------------------------------------
+    def create_new(self) -> bool:
+        tab = self.tabs.currentWidget()
+        if tab is not None and hasattr(tab, "_add"):
+            tab._add()
+            return True
+        return False
+
+    def focus_search(self) -> bool:
+        # The expense search is the only free-text search in the app; jump to
+        # its tab so Ctrl+F always lands somewhere useful.
+        self.tabs.setCurrentWidget(self.expenses_tab)
+        self.expenses_tab.search.setFocus()
+        self.expenses_tab.search.selectAll()
+        return True
+
+    def month_navigator(self):
+        tab = self.tabs.currentWidget()
+        return getattr(tab, "_nav", None)

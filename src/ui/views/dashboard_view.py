@@ -32,7 +32,7 @@ from ui import theme
 from ui.budget_dialog import CategoryBudgetDialog
 from ui.views.base_view import BaseView
 from ui.widgets.chart_canvas import ChartCanvas
-from ui.widgets.common import StatCard, clear_layout, heading, muted
+from ui.widgets.common import StatCard, clear_layout, heading, muted, primary_button
 from ui.widgets.month_nav import MonthNavigator
 
 
@@ -87,8 +87,15 @@ class DashboardView(BaseView):
         header.addStretch(1)
         nav = MonthNavigator(c, self._year, self._month, allow_future=False)
         nav.month_changed.connect(self._on_month)
+        self._nav = nav  # exposed via month_navigator() for the keyboard layer
         header.addWidget(nav)
         self._body.addLayout(header)
+
+        # First start: an empty database shows zeros everywhere — put the
+        # setup wizard front and centre instead of leaving a dead dashboard.
+        from modules.seed import database_is_empty
+        if database_is_empty(self.ctx.db):
+            self._body.addWidget(self._onboarding_card(c))
 
         self._body.addWidget(self._stat_row(ov, prev, c))
         self._body.addWidget(self._availability_and_chart(ov, c))
@@ -97,6 +104,42 @@ class DashboardView(BaseView):
             self._body.addWidget(budget_panel)
         self._body.addWidget(self._timeline_panel(ov, c))
         self._body.addStretch(1)
+
+    def month_navigator(self):
+        return getattr(self, "_nav", None)
+
+    # -- onboarding ----------------------------------------------------------
+    def _onboarding_card(self, c) -> QWidget:
+        card = QFrame()
+        card.setObjectName("Card")
+        box = QVBoxLayout(card)
+        box.setContentsMargins(22, 20, 22, 20)
+        box.setSpacing(8)
+        title = QLabel("Willkommen! In 2 Minuten startklar")
+        title.setObjectName("H2")
+        box.addWidget(title)
+        text = QLabel(
+            "Es sind noch keine Daten vorhanden. Der Assistent fragt deine "
+            "Einnahmen und die wichtigsten Fixkosten ab – danach zeigt das "
+            "Dashboard deine echte Monatsübersicht. Alternativ kannst du unter "
+            "Import / Export direkt einen Kontoauszug einlesen.")
+        text.setObjectName("Muted")
+        text.setWordWrap(True)
+        box.addWidget(text)
+        row = QHBoxLayout()
+        # Inline-filled primary button: the dashboard body sits on a
+        # transparent scroll container where the global #Primary fill vanishes.
+        btn = primary_button("Jetzt einrichten", c)
+        btn.clicked.connect(self._run_wizard)
+        row.addWidget(btn)
+        row.addStretch(1)
+        box.addLayout(row)
+        return card
+
+    def _run_wizard(self) -> None:
+        from ui.wizard import run_wizard
+        run_wizard(self.ctx, self)
+        self.ctx.notify_changed()
 
     # -- sections -----------------------------------------------------------
     def _delta(self, cur: int, prev: int, c, *, good_up: bool) -> tuple[str, str]:

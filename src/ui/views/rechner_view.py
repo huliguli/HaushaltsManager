@@ -34,7 +34,14 @@ from modules.calculator import annuity, auto, balloon, house
 from modules.money import format_eur
 from ui import plan_actions, theme
 from ui.views.base_view import BaseView
-from ui.widgets.common import align_table_headers, clear_layout, heading, muted, primary_button
+from ui.widgets.common import (
+    align_table_headers,
+    clear_layout,
+    compute_on_enter,
+    heading,
+    muted,
+    primary_button,
+)
 from ui.widgets.inputs import MoneyLineEdit, labelled
 
 
@@ -146,6 +153,10 @@ class _CalcTab(QWidget):
         self.error.setWordWrap(True)
         self.error.hide()
         self.form.addWidget(self.error)
+
+        # Enter anywhere in the tab recalculates (every subclass provides
+        # _compute); resolved at call time, so binding here covers all tabs.
+        compute_on_enter(self, lambda: self._compute())
 
     def _show_error(self, message: str) -> None:
         clear_layout(self.results)

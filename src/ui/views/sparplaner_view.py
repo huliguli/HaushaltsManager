@@ -34,7 +34,14 @@ from modules.calculator import savings
 from modules.money import format_eur
 from ui import plan_actions, theme
 from ui.views.base_view import BaseView
-from ui.widgets.common import align_table_headers, clear_layout, heading, muted, primary_button
+from ui.widgets.common import (
+    align_table_headers,
+    clear_layout,
+    compute_on_enter,
+    heading,
+    muted,
+    primary_button,
+)
 from ui.widgets.inputs import MoneyLineEdit, labelled
 
 
@@ -169,6 +176,8 @@ class SparplanerView(BaseView):
         self.form.addWidget(go)
         self.form.addWidget(self.error)
         self.form.addStretch(1)
+        # Enter anywhere in the view recalculates, like in the Rechner tabs.
+        compute_on_enter(self, self._compute)
 
         self.mode_rate.toggled.connect(self._on_mode)
         self._on_mode()
