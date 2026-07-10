@@ -121,11 +121,14 @@ class VariableExpenseRepository:
         return f"{year:04d}-{month:02d}-01", f"{year:04d}-{month:02d}-{last:02d}", last
 
     def _recurring_occurrences(self, year: int, month: int) -> list[VariableExpense]:
-        """Recurring templates that have started by (year, month), each returned
+        """Recurring templates whose cadence hits (year, month), each returned
         as a virtual expense dated within that month (day clamped to its length).
 
-        The returned occurrence keeps the template's ``id`` so edit/delete in the
-        UI act on the template (i.e. on every month at once).
+        A template recurs every ``interval_months`` (1 monthly, 3 quarterly,
+        12 yearly) starting from its own month; an optional ``recur_end`` is
+        the last date an occurrence may fall on. The returned occurrence keeps
+        the template's ``id`` so edit/delete in the UI act on the template
+        (i.e. on every month at once).
         """
         _start, end, last = self._month_bounds(year, month)
         rows = self.db.query(
@@ -135,14 +138,22 @@ class VariableExpenseRepository:
         out: list[VariableExpense] = []
         for r in rows:
             t = VariableExpense.from_row(r)
+            interval = max(1, t.interval_months)
             try:
+                months_since = ((year - int(t.date[:4])) * 12
+                                + (month - int(t.date[5:7])))
                 day = min(int(t.date[8:10]), last)
             except (ValueError, IndexError):
-                day = 1
+                months_since, day = 0, 1
+            if months_since % interval:
+                continue  # this month is between two occurrences
+            occurrence_date = f"{year:04d}-{month:02d}-{day:02d}"
+            if t.recur_end and occurrence_date > t.recur_end:
+                continue  # the recurrence has ended
             out.append(VariableExpense(
-                id=t.id, date=f"{year:04d}-{month:02d}-{day:02d}", amount_cents=t.amount_cents,
+                id=t.id, date=occurrence_date, amount_cents=t.amount_cents,
                 category=t.category, description=t.description, receipt_path=t.receipt_path,
-                recurring=True))
+                recurring=True, interval_months=t.interval_months, recur_end=t.recur_end))
         return out
 
     def list_for_month(self, year: int, month: int) -> list[VariableExpense]:
@@ -335,10 +346,42 @@ class ImportLogRepository:
             found.update(r["tx_hash"] for r in rows)
         return found
 
-    def add(self, tx_hash: str, booking_date: str, amount_cents: int) -> None:
+    def add(self, tx_hash: str, booking_date: str, amount_cents: int,
+            batch_id: str | None = None, created_kind: str | None = None,
+            created_row_id: int | None = None) -> None:
+        """Log an imported transaction; the batch/created columns make the
+        whole import reversible ("Letzten Import rückgängig")."""
         self.db.execute(
-            "INSERT OR IGNORE INTO import_log (tx_hash, booking_date, amount_cents) "
-            "VALUES (?, ?, ?)", (tx_hash, booking_date, amount_cents))
+            "INSERT OR IGNORE INTO import_log "
+            "(tx_hash, booking_date, amount_cents, batch_id, created_kind, created_row_id) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (tx_hash, booking_date, amount_cents, batch_id, created_kind, created_row_id))
+
+    def latest_batch(self) -> tuple[str, int, str] | None:
+        """(batch_id, row_count, imported_at) of the newest reversible import.
+
+        Rows from releases before v2.7.0 have no batch_id and are therefore
+        not reversible; they are simply skipped here.
+        """
+        row = self.db.query_one(
+            "SELECT batch_id, MAX(imported_at) AS newest FROM import_log "
+            "WHERE batch_id IS NOT NULL GROUP BY batch_id "
+            "ORDER BY newest DESC, batch_id DESC LIMIT 1")
+        if not row or not row["batch_id"]:
+            return None
+        count = self.db.query_one(
+            "SELECT COUNT(*) AS n FROM import_log WHERE batch_id = ?",
+            (row["batch_id"],))
+        return row["batch_id"], int(count["n"]), str(row["newest"] or "")
+
+    def rows_for_batch(self, batch_id: str) -> list:
+        return self.db.query(
+            "SELECT * FROM import_log WHERE batch_id = ? ORDER BY id", (batch_id,))
+
+    def delete_batch(self, batch_id: str) -> None:
+        """Drop a batch's log rows — incl. their hashes, so the same statement
+        can be imported again after an undo."""
+        self.db.execute("DELETE FROM import_log WHERE batch_id = ?", (batch_id,))
 
 
 class BankProfileRepository:

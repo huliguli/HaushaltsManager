@@ -46,6 +46,7 @@ from ui.widgets.common import (
     table_shortcuts,
 )
 from ui.widgets.month_nav import MonthNavigator
+from ui.widgets import toast
 
 _ROLE_ID = Qt.ItemDataRole.UserRole
 
@@ -249,12 +250,19 @@ class _IncomeTab(QWidget):
             return
         kind, rid = sel
         if QMessageBox.question(self, "Löschen", "Diese Einnahme wirklich löschen?") \
-                == QMessageBox.StandardButton.Yes:
-            if kind == "var":
-                self.ctx.var_income.delete(rid)
-            else:
-                self.ctx.income.delete(rid)
-            self.ctx.notify_changed()
+                != QMessageBox.StandardButton.Yes:
+            return
+        # Keep the row's dataclass so the toast can re-insert it on undo.
+        repo = self.ctx.var_income if kind == "var" else self.ctx.income
+        item = repo.get(rid)
+        repo.delete(rid)
+        self.ctx.notify_changed()
+        if item is not None:
+            def undo() -> None:
+                item.id = None  # re-insert as a new row
+                repo.add(item)
+                self.ctx.notify_changed()
+            toast.show_undo(self, "Einnahme gelöscht.", undo)
 
 
 # --- Fixed costs tab -------------------------------------------------------
@@ -379,9 +387,17 @@ class _FixedTab(QWidget):
         if rid is None:
             return
         if QMessageBox.question(self, "Löschen", "Diesen Fixkosten-Eintrag wirklich löschen?") \
-                == QMessageBox.StandardButton.Yes:
-            self.ctx.fixed.delete(rid)
-            self.ctx.notify_changed()
+                != QMessageBox.StandardButton.Yes:
+            return
+        item = self.ctx.fixed.get(rid)
+        self.ctx.fixed.delete(rid)
+        self.ctx.notify_changed()
+        if item is not None:
+            def undo() -> None:
+                item.id = None
+                self.ctx.fixed.add(item)
+                self.ctx.notify_changed()
+            toast.show_undo(self, "Fixkosten-Eintrag gelöscht.", undo)
 
 
 # --- Variable expenses tab -------------------------------------------------
@@ -504,8 +520,12 @@ class _ExpensesTab(QWidget):
             self.table.setItem(r, 0, d)
             self.table.setItem(r, 1, _text_item(it.category))
             desc = it.description or ""
-            if it.recurring:                       # mark the monthly-recurring rows
-                desc = f"↻ {desc}" if desc else "↻ monatlich"
+            if it.recurring:                       # mark recurring rows incl. cadence
+                if it.interval_months == 1:
+                    desc = f"↻ {desc}" if desc else "↻ monatlich"
+                else:
+                    marker = it.interval_label()   # quartalsweise / jährlich / ...
+                    desc = f"↻ {marker}" + (f" · {desc}" if desc else "")
             self.table.setItem(r, 2, _text_item(desc))
             self.table.setItem(r, 3, _SortItem(format_eur(it.amount_cents), it.amount_cents, right=True))
         self.table.setSortingEnabled(True)
@@ -541,9 +561,18 @@ class _ExpensesTab(QWidget):
         item = self.ctx.expenses.get(rid)
         msg = ("Diese wiederkehrende Ausgabe ganz löschen (in allen Monaten)?"
                if item and item.recurring else "Diese Ausgabe wirklich löschen?")
-        if QMessageBox.question(self, "Löschen", msg) == QMessageBox.StandardButton.Yes:
-            self.ctx.expenses.delete(rid)
-            self.ctx.notify_changed()
+        if QMessageBox.question(self, "Löschen", msg) != QMessageBox.StandardButton.Yes:
+            return
+        self.ctx.expenses.delete(rid)
+        self.ctx.notify_changed()
+        if item is not None:
+            def undo() -> None:
+                item.id = None
+                self.ctx.expenses.add(item)
+                self.ctx.notify_changed()
+            text = ("Wiederkehrende Ausgabe gelöscht."
+                    if item.recurring else "Ausgabe gelöscht.")
+            toast.show_undo(self, text, undo)
 
 
 class HaushaltsbuchView(BaseView):

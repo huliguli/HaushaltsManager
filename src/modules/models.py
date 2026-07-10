@@ -160,11 +160,21 @@ class VariableExpense:
     category: str = "Sonstiges"
     description: str = ""
     receipt_path: str | None = None
-    recurring: bool = False            # True = monthly-recurring template
+    recurring: bool = False            # True = recurring template
+    interval_months: int = 1           # cadence: 1 monthly, 3 quarterly, 12 yearly
+    recur_end: str | None = None       # optional ISO date the recurrence stops at
     id: int | None = None
+
+    # UI vocabulary for the cadence — single source for dialog and table marker.
+    INTERVAL_LABELS = {1: "monatlich", 3: "quartalsweise", 12: "jährlich"}
+
+    def interval_label(self) -> str:
+        return self.INTERVAL_LABELS.get(
+            self.interval_months, f"alle {self.interval_months} Monate")
 
     @staticmethod
     def from_row(row) -> "VariableExpense":
+        keys = row.keys()
         return VariableExpense(
             id=row["id"],
             date=row["date"],
@@ -173,6 +183,11 @@ class VariableExpense:
             description=row["description"] or "",
             receipt_path=row["receipt_path"],
             recurring=bool(row["recurring"]),
+            # Defensive: rows read from a pre-v4 snapshot (e.g. a backup file
+            # inspected read-only, before any migration ran) lack the columns.
+            interval_months=int(row["recur_interval_months"])
+            if "recur_interval_months" in keys else 1,
+            recur_end=row["recur_end"] if "recur_end" in keys else None,
         )
 
     def to_params(self) -> dict:
@@ -183,6 +198,8 @@ class VariableExpense:
             "description": self.description or None,
             "receipt_path": self.receipt_path,
             "recurring": 1 if self.recurring else 0,
+            "recur_interval_months": max(1, int(self.interval_months)),
+            "recur_end": self.recur_end,
         }
 
 

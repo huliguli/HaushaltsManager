@@ -41,6 +41,12 @@ werden aus **derselben Codebasis** gebaut, sodass der Funktionsumfang identisch 
   Kontoauszug-Import, Daten-Aktualisierung und Löschen, die letzten 10 werden
   aufbewahrt), manuelles Backup und Ein-Klick-Wiederherstellung in den
   Einstellungen; beim Start wird die Datenbank auf Beschädigung geprüft.
+- **Nichts ist endgültig** – jede Löschung lässt sich direkt per
+  „Rückgängig"-Hinweis zurückholen, und der zuletzt übernommene
+  Kontoauszug-Import kann als Ganzes rückgängig gemacht werden.
+- **Flexible Wiederholungen** – wiederkehrende Ausgaben monatlich,
+  quartalsweise oder jährlich (z. B. Kfz-Versicherung, GEZ, Jahresabos),
+  optional mit Enddatum.
 - **Schnelle Bedienung** – Monatsauswahl per Klick aufs Monatslabel
   (Monats-/Jahres-Picker) und „Heute"-Sprung; Tastatur-Kurzbefehle:
   Strg+1–8 (Bereiche), Strg+N (neuer Eintrag), Strg+F (Ausgaben-Suche),

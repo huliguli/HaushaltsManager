@@ -75,6 +75,11 @@ class ImportExportView(BaseView):
             "Quick-Setup-Wizard",
             "Schritt für Schritt Einnahmen, Fixkosten und erste Ausgaben einrichten.",
             "Assistent starten", self._run_wizard))
+        layout.addWidget(self._action(
+            "Letzten Import rückgängig machen",
+            "Entfernt alle Buchungen des zuletzt übernommenen Kontoauszugs – "
+            "danach lässt sich derselbe Auszug erneut importieren.",
+            "Rückgängig machen…", self._undo_last_import))
         layout.addStretch(1)
         return card
 
@@ -281,14 +286,45 @@ class ImportExportView(BaseView):
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
                 QMessageBox.StandardButton.No) != QMessageBox.StandardButton.Yes:
                 return
+        import uuid
         n_exp, n_inc = commit_transactions(
             transactions, self.ctx.expenses, self.ctx.var_income,
-            self.ctx.import_rules, self.ctx.import_log)
+            self.ctx.import_rules, self.ctx.import_log,
+            batch_id=uuid.uuid4().hex)
         self.ctx.notify_changed()
         QMessageBox.information(
             self, "Import abgeschlossen",
             f"{n_exp} Ausgaben und {n_inc} einmalige Einnahmen übernommen."
-            + (f"\n{skipped} bereits vorhanden (übersprungen)." if skipped else ""))
+            + (f"\n{skipped} bereits vorhanden (übersprungen)." if skipped else "")
+            + "\nFalls nötig: „Letzten Import rückgängig machen“ auf dieser Seite.")
+
+    def _undo_last_import(self) -> None:
+        """Roll back the newest import batch (bookings + de-dup hashes)."""
+        from modules.bank_import.commit import rollback_batch
+
+        info = self.ctx.import_log.latest_batch()
+        if info is None:
+            QMessageBox.information(
+                self, "Kein Import vorhanden",
+                "Es gibt keinen rückholbaren Kontoauszug-Import.\n"
+                "(Importe aus Versionen vor v2.7.0 lassen sich nicht "
+                "automatisch zurücknehmen.)")
+            return
+        batch_id, count, imported_at = info
+        when = dates.format_date(imported_at[:10]) or imported_at[:10]
+        if QMessageBox.question(
+            self, "Import rückgängig machen",
+            f"Alle {count} Buchungen des Imports vom {when} entfernen?\n"
+            "Der Auszug lässt sich danach erneut importieren.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No) != QMessageBox.StandardButton.Yes:
+            return
+        n_exp, n_inc = rollback_batch(
+            batch_id, self.ctx.expenses, self.ctx.var_income, self.ctx.import_log)
+        self.ctx.notify_changed()
+        QMessageBox.information(
+            self, "Import zurückgenommen",
+            f"{n_exp} Ausgaben und {n_inc} einmalige Einnahmen wurden entfernt.")
 
     # -- export handlers ----------------------------------------------------
     def _export_excel(self) -> None:

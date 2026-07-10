@@ -17,7 +17,7 @@ from modules.logging_setup import get_logger
 
 _log = get_logger("db")
 
-CURRENT_SCHEMA_VERSION = 3
+CURRENT_SCHEMA_VERSION = 4
 
 
 class DatabaseCorruptError(RuntimeError):
@@ -187,8 +187,25 @@ class Database:
             "CREATE INDEX IF NOT EXISTS idx_var_recurring "
             "ON variable_expenses(recurring) WHERE recurring = 1")
         self.conn.commit()
+        # v4 columns: recurring cadence + end date, and the import-batch
+        # bookkeeping that makes "undo last import" possible. Guarded ALTERs,
+        # no-ops on a fresh DB (schema.sql already has them).
+        v4_columns = (
+            ("variable_expenses", "recur_interval_months",
+             "INTEGER NOT NULL DEFAULT 1"),
+            ("variable_expenses", "recur_end", "TEXT"),
+            ("import_log", "batch_id", "TEXT"),
+            ("import_log", "created_kind", "TEXT"),
+            ("import_log", "created_row_id", "INTEGER"),
+        )
+        for table, column, decl in v4_columns:
+            if not self._has_column(table, column):
+                self.conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {decl}")
+                self._column_cache.pop(table, None)
+        self.conn.commit()
         self._migrate_expense_categories_v2()
         self._migrate_v3()
+        self._migrate_v4()
 
     def _migrate_v3(self) -> None:
         """Record schema v3 on an existing database (run once).
@@ -204,6 +221,19 @@ class Database:
         if row is None or row["version"] >= 3:
             return
         self.conn.execute("UPDATE schema_version SET version = 3")
+        self.conn.commit()
+
+    def _migrate_v4(self) -> None:
+        """Record schema v4 on an existing database (run once).
+
+        The v4 additions are pure column additions handled by the guarded
+        ALTERs in :meth:`_migrate`; only the stored version needs bumping so
+        the forward guard and future migrations see the correct level.
+        """
+        row = self.conn.execute("SELECT version FROM schema_version LIMIT 1").fetchone()
+        if row is None or row["version"] >= 4:
+            return
+        self.conn.execute("UPDATE schema_version SET version = 4")
         self.conn.commit()
 
     def wipe_financial_data(self) -> None:

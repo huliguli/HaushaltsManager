@@ -50,17 +50,21 @@ CREATE TABLE IF NOT EXISTS fixed_costs (
 );
 
 -- --- Variable expenses (dated, categorised, optional receipt) -------------
--- recurring = 1 marks a monthly-recurring template: it counts in its start
--- month (its `date`) and in every later month, materialised on the fly.
+-- recurring = 1 marks a recurring template: it counts in its start month
+-- (its `date`) and in every later month hit by its cadence, materialised on
+-- the fly. recur_interval_months (1/3/12) sets the cadence; recur_end
+-- (optional, ISO) is the last date an occurrence may fall on.
 CREATE TABLE IF NOT EXISTS variable_expenses (
-    id           INTEGER PRIMARY KEY AUTOINCREMENT,
-    date         TEXT    NOT NULL,                      -- ISO YYYY-MM-DD
-    amount_cents INTEGER NOT NULL DEFAULT 0,
-    category     TEXT    NOT NULL DEFAULT 'Sonstiges',
-    description  TEXT,
-    receipt_path TEXT,                                  -- optional image path
-    recurring    INTEGER NOT NULL DEFAULT 0,            -- 1 = monatlich wiederkehrend
-    created_at   TEXT    NOT NULL DEFAULT (datetime('now'))
+    id                    INTEGER PRIMARY KEY AUTOINCREMENT,
+    date                  TEXT    NOT NULL,             -- ISO YYYY-MM-DD
+    amount_cents          INTEGER NOT NULL DEFAULT 0,
+    category              TEXT    NOT NULL DEFAULT 'Sonstiges',
+    description           TEXT,
+    receipt_path          TEXT,                         -- optional image path
+    recurring             INTEGER NOT NULL DEFAULT 0,   -- 1 = wiederkehrend
+    recur_interval_months INTEGER NOT NULL DEFAULT 1,   -- 1/3/12 Monate
+    recur_end             TEXT,                         -- optional ISO end date
+    created_at            TEXT    NOT NULL DEFAULT (datetime('now'))
 );
 
 -- --- Credits / loans -------------------------------------------------------
@@ -120,11 +124,14 @@ CREATE TABLE IF NOT EXISTS import_rules (
 
 -- --- Bank-statement import: de-dup log (so a re-import skips known rows) ----
 CREATE TABLE IF NOT EXISTS import_log (
-    id           INTEGER PRIMARY KEY AUTOINCREMENT,
-    tx_hash      TEXT    NOT NULL,
-    booking_date TEXT,
-    amount_cents INTEGER,
-    imported_at  TEXT    NOT NULL DEFAULT (datetime('now')),
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    tx_hash        TEXT    NOT NULL,
+    booking_date   TEXT,
+    amount_cents   INTEGER,
+    imported_at    TEXT    NOT NULL DEFAULT (datetime('now')),
+    batch_id       TEXT,                                -- one id per commit run
+    created_kind   TEXT,                                -- 'expense' | 'income'
+    created_row_id INTEGER,                             -- row the commit created
     UNIQUE (tx_hash)
 );
 

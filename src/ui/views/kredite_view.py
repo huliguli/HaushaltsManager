@@ -26,6 +26,7 @@ from modules.money import format_eur
 from ui import theme
 from ui.dialogs import CreditDialog
 from ui.views.base_view import BaseView
+from ui.widgets import toast
 from ui.widgets.common import (
     Pill,
     TablePanel,
@@ -174,9 +175,19 @@ class KrediteView(BaseView):
         if rid is None:
             return
         if QMessageBox.question(self, "Löschen", "Diesen Kredit wirklich löschen?") \
-                == QMessageBox.StandardButton.Yes:
-            self.ctx.credits.delete(rid)
-            self.ctx.notify_changed()
+                != QMessageBox.StandardButton.Yes:
+            return
+        item = self.ctx.credits.get(rid)
+        self.ctx.credits.delete(rid)
+        self.ctx.notify_changed()
+        if item is not None:
+            def undo() -> None:
+                # The linked fixed-cost row (if any) was not deleted, so the
+                # restored credit keeps pointing at it.
+                item.id = None
+                self.ctx.credits.add(item)
+                self.ctx.notify_changed()
+            toast.show_undo(self, "Kredit gelöscht.", undo)
 
     def _sync_linked_fixed(self, credit) -> None:
         """Keep the linked fixed-cost row's monthly amount in sync."""

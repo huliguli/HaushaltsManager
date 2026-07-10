@@ -229,15 +229,30 @@ class ExpenseDialog(_BaseDialog):
         rl.addWidget(self.receipt, 1)
         rl.addWidget(browse)
 
-        self.recurring = QCheckBox("Monatlich wiederkehrend (erscheint automatisch in jedem Folgemonat)")
-        self.recurring.setChecked(item.recurring if item else False)
+        # Recurrence: none / monthly / quarterly / yearly, plus an optional end
+        # date. Quarterly/yearly covers the classic "forgotten" items
+        # (Kfz-Versicherung, GEZ, Jahresabos) without faking a monthly rate.
+        self.interval = QComboBox()
+        self.interval.addItem("Keine (einmalige Ausgabe)", None)
+        for months, label in VariableExpense.INTERVAL_LABELS.items():
+            self.interval.addItem(label.capitalize(), months)
+        if item and item.recurring:
+            idx = self.interval.findData(item.interval_months)
+            self.interval.setCurrentIndex(idx if idx >= 0 else 1)
+        self.recur_end = QLineEdit(
+            dates.format_date(item.recur_end) if item and item.recur_end else "")
+        self.recur_end.setPlaceholderText("TT.MM.JJJJ · leer = unbegrenzt")
+        self.recur_end.setEnabled(self.interval.currentData() is not None)
+        self.interval.currentIndexChanged.connect(
+            lambda _i: self.recur_end.setEnabled(self.interval.currentData() is not None))
 
-        self.add_row(labelled("Datum (bei wiederkehrend: ab diesem Monat)", self.date),
+        self.add_row(labelled("Datum (bei Wiederholung: ab diesem Datum)", self.date),
                      labelled("Betrag", self.amount))
         self.add_row(labelled("Kategorie", self.category),
                      labelled("Beschreibung", self.description))
         self.add_row(labelled("Beleg (optional)", receipt_row))
-        self.add_row(self.recurring)
+        self.add_row(labelled("Wiederholung", self.interval),
+                     labelled("Wiederholung endet am (optional)", self.recur_end))
 
     def _browse_receipt(self) -> None:
         path, _ = QFileDialog.getOpenFileName(
@@ -254,12 +269,24 @@ class ExpenseDialog(_BaseDialog):
         amount = self.amount.cents()
         if amount is None:
             raise ValueError("Bitte einen gültigen Betrag eingeben.")
+        interval = self.interval.currentData()
+        recur_end = None
+        if interval is not None and self.recur_end.text().strip():
+            end = dates.parse_date(self.recur_end.text())
+            if end is None:
+                raise ValueError(
+                    "Bitte ein gültiges Enddatum (TT.MM.JJJJ) eingeben oder das Feld leeren.")
+            if end < d:
+                raise ValueError("Das Enddatum liegt vor dem Startdatum.")
+            recur_end = dates.to_iso(end)
         self.result_model = VariableExpense(
             id=self._id, date=dates.to_iso(d), amount_cents=amount,
             category=self.category.currentText(),
             description=self.description.text().strip(),
             receipt_path=self.receipt.text().strip() or None,
-            recurring=self.recurring.isChecked(),
+            recurring=interval is not None,
+            interval_months=interval or 1,
+            recur_end=recur_end,
         )
 
 
