@@ -16,13 +16,19 @@ werden aus **derselben Codebasis** gebaut, sodass der Funktionsumfang identisch 
   verbleibend) als Ampel-Cards mit **Vergleich zum Vormonat**, Verfügbarkeits-Kennzahlen,
   **Kategorie-Budgets** (Soll/Ist mit Ampel-Fortschrittsbalken) und einer chronologischen
   **Fixkosten-Abbau-Timeline** (wann fällt welche Kosten weg → neuer Verfügbarkeitsbetrag).
+- **Blick nach vorn** – Saldo-Prognose für die kommenden 6/12/24 Monate als
+  gestrichelte Fortsetzung des Verlaufs: feste Einnahmen, Fixkosten mit ihren
+  Enddaten („Kredit X fällt weg"), wiederkehrende Ausgaben und der Durchschnitt
+  der einmaligen Ausgaben – inklusive Ereignis-Liste je Monat.
 - **Verlauf & Trends** – Einnahmen, Ausgaben und Saldo über 6/12/24 Monate als
   Liniendiagramm, Ausgaben-Kategorien im Zeitverlauf als gestapeltes Balkendiagramm
   und Durchschnitts-Kennzahlen. Speist sich aus den bereits erfassten Daten.
 - **Haushaltsbuch** – Einnahmen, Fixkosten-Manager (Kategorien, Enddatum,
   „noch X Monate", Ampel-Farben, Filter) und variable Ausgaben mit Monatsnavigation,
   **monatsübergreifender Suche**, Kategoriefilter und klickbarer Spaltensortierung.
-- **Kredite** – laufende Kredite verwalten, optional mit einem Fixkosten-Eintrag
+- **Kredite** – mit Restschuld und Tilgungsfortschritt (bei hinterlegtem
+  Zinssatz nach Annuitätenrechnung), automatischem „Abbezahlt"-Status am
+  Laufzeitende; laufende Kredite verwalten, optional mit einem Fixkosten-Eintrag
   verknüpft (bleibt synchron).
 - **Rechner** – Annuitäten-, Ballon-, Auto- und Hausfinanzierung mit vollständigem
   Tilgungsplan, Standard/Ballon-Vergleich und Haushaltsbudget-Check beim Auto.

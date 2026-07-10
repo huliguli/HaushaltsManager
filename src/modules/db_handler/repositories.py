@@ -162,6 +162,11 @@ class VariableExpenseRepository:
         items.sort(key=lambda e: (e.date, e.id or 0), reverse=True)
         return items
 
+    def recurring_total_for_month(self, year: int, month: int) -> int:
+        """Sum of the recurring occurrences hitting (year, month) — also valid
+        for FUTURE months, which is what the forecast projection builds on."""
+        return sum(o.amount_cents for o in self._recurring_occurrences(year, month))
+
     def total_for_month(self, year: int, month: int) -> int:
         start, end, _ = self._month_bounds(year, month)
         recurring = sum(o.amount_cents for o in self._recurring_occurrences(year, month))

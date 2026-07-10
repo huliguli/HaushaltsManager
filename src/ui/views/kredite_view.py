@@ -14,13 +14,15 @@ from PyQt6.QtWidgets import (
     QHeaderView,
     QLabel,
     QMessageBox,
+    QProgressBar,
     QPushButton,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
+    QWidget,
 )
 
-from modules import dates
+from modules import credit_progress, dates
 from modules.models import CREDIT_STATUS_LABELS
 from modules.money import format_eur
 from ui import theme
@@ -75,10 +77,10 @@ class KrediteView(BaseView):
         bar.addWidget(add)
         layout.addLayout(bar)
 
-        self.table = QTableWidget(0, 7)
+        self.table = QTableWidget(0, 8)
         self.table.setHorizontalHeaderLabels(
             ["Bezeichnung", "Kategorie", "Gesamtbetrag", "Rate / Monat",
-             "Restlaufzeit", "Ende", "Status"])
+             "Restschuld", "Restlaufzeit", "Ende", "Status"])
         self.table.verticalHeader().setVisible(False)
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
@@ -109,6 +111,7 @@ class KrediteView(BaseView):
         self.table.setRowCount(len(credits))
         monthly_total = 0
         active_count = 0
+        remaining_total = 0
         for r, cr in enumerate(credits):
             if cr.status == "aktiv" and cr.monthly_cents:
                 monthly_total += cr.monthly_cents
@@ -119,25 +122,80 @@ class KrediteView(BaseView):
             self.table.setItem(r, 1, _ro_item(cr.category))
             self.table.setItem(r, 2, _ro_item(format_eur(cr.total_cents) if cr.total_cents else "–", True))
             self.table.setItem(r, 3, _ro_item(format_eur(cr.monthly_cents) if cr.monthly_cents else "–", True))
-            self.table.setItem(r, 4, _ro_item(self._term_text(cr)))
-            self.table.setItem(r, 5, _ro_item(dates.format_date(cr.end_date) or "–"))
-            key = _STATUS_AMPEL.get(cr.status, "grey")
-            pill = Pill(CREDIT_STATUS_LABELS.get(cr.status, cr.status),
+
+            # Scheduled repayment state derived from the master data alone;
+            # None when it is too thin (no start/rate/term) -> show a dash.
+            progress = credit_progress.compute(cr)
+            if progress is not None:
+                remaining_total += progress.remaining_cents
+                self.table.setCellWidget(r, 4, self._remaining_cell(progress, colors))
+            else:
+                self.table.setItem(r, 4, _ro_item("–", True))
+
+            self.table.setItem(r, 5, _ro_item(self._term_text(cr)))
+            self.table.setItem(r, 6, _ro_item(dates.format_date(cr.end_date) or "–"))
+            # Display-only auto status: once the schedule is through, show
+            # "Abbezahlt" even while the stored status still says "aktiv"
+            # (the row itself stays untouched — editing keeps all options).
+            status = cr.status
+            if progress is not None and progress.finished and status == "aktiv":
+                status = "abbezahlt"
+            key = _STATUS_AMPEL.get(status, "grey")
+            pill = Pill(CREDIT_STATUS_LABELS.get(status, status),
                         theme.ampel_color(key, colors), theme.ampel_soft(key, colors))
-            self.table.setCellWidget(r, 6, pill_cell(pill))
+            self.table.setCellWidget(r, 7, pill_cell(pill))
 
         header = self.table.horizontalHeader()
         header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
-        for col in range(1, 6):
+        for col in (1, 2, 3, 5, 6):
             header.setSectionResizeMode(col, QHeaderView.ResizeMode.ResizeToContents)
-        # The status column hosts a pill cell-widget, which ResizeToContents
-        # cannot measure -> fixed width so the badge is never clipped.
-        header.setSectionResizeMode(6, QHeaderView.ResizeMode.Fixed)
-        self.table.setColumnWidth(6, 120)
-        align_table_headers(self.table, right_cols=(2, 3))  # Gesamtbetrag, Rate/Monat
+        # Cell-widget columns (remaining-debt bar, status pill): ResizeToContents
+        # cannot measure widgets -> fixed widths so nothing is ever clipped.
+        header.setSectionResizeMode(4, QHeaderView.ResizeMode.Fixed)
+        self.table.setColumnWidth(4, 150)
+        header.setSectionResizeMode(7, QHeaderView.ResizeMode.Fixed)
+        self.table.setColumnWidth(7, 120)
+        align_table_headers(self.table, right_cols=(2, 3))
         self._panel.update_state()
-        self.summary.setText(
-            f"{active_count} aktive Kredite · monatliche Belastung {format_eur(monthly_total)}")
+        summary = f"{active_count} aktive Kredite · monatliche Belastung {format_eur(monthly_total)}"
+        if remaining_total:
+            summary += f" · Restschuld gesamt {format_eur(remaining_total)}"
+        self.summary.setText(summary)
+
+    @staticmethod
+    def _remaining_cell(progress, colors) -> QWidget:
+        """Remaining debt + paid share on one line, thin repayment bar below."""
+        pct = round(progress.ratio * 100)
+        label = QLabel(f"{format_eur(progress.remaining_cents)} · {pct} %")
+        label.setStyleSheet(f"color: {colors['text']}; font-size: 11px;")
+        label.setFixedHeight(15)
+        label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        bar = QProgressBar()
+        bar.setRange(0, 1000)
+        bar.setValue(round(progress.ratio * 1000))
+        bar.setTextVisible(False)
+        bar.setFixedHeight(6)
+        color = colors["green"] if progress.finished else colors["primary"]
+        bar.setStyleSheet(
+            f"QProgressBar {{ background: {colors['surface_3']}; border: none;"
+            f" border-radius: 3px; }}"
+            f"QProgressBar::chunk {{ background: {color}; border-radius: 3px; }}")
+        wrap = QWidget()
+        layout = QVBoxLayout(wrap)
+        layout.setContentsMargins(6, 0, 10, 0)
+        layout.setSpacing(3)
+        layout.addStretch(1)
+        layout.addWidget(label)
+        layout.addWidget(bar)
+        layout.addStretch(1)
+        wrap.setAccessibleName(
+            f"Restschuld {format_eur(progress.remaining_cents)}, "
+            f"getilgt {pct} Prozent")
+        wrap.setToolTip(
+            f"Getilgt {format_eur(progress.paid_cents)} von "
+            f"{format_eur(progress.principal_cents)} · Rate {progress.months_elapsed} "
+            f"von {progress.months_total}")
+        return wrap
 
     @staticmethod
     def _term_text(cr) -> str:

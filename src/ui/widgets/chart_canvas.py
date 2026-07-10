@@ -93,6 +93,57 @@ class ChartCanvas(FigureCanvasQTAgg):
         ax.set_xticklabels(labels, rotation=rotation,
                            ha="center" if rotation == 0 else "right")
 
+    # -- balance history + dashed forecast continuation ---------------------
+    def saldo_forecast(self, labels: list[str], actual_cents: list[int],
+                       forecast_cents: list[int], color: str,
+                       event_indices: list[int] | None = None) -> None:
+        """One continuous balance line: solid actual months, dashed projection.
+
+        ``labels`` covers actual + forecast months in order; the forecast
+        segment starts right after the last actual month and is connected to
+        it. A vertical "Heute" separator marks the boundary; ``event_indices``
+        (absolute positions within ``labels``) get a dot marker so drop-off
+        months are visible directly in the line.
+        """
+        self.fig.clear()
+        ax = self.fig.add_subplot(111)
+        if not labels or not forecast_cents:
+            ax.set_facecolor(self._bg())
+            self._no_data(ax)
+            return
+        self._style_axes(ax, labels)
+        c = self.colors
+        n_actual = len(actual_cents)
+        ys_actual = [v / 100.0 for v in actual_cents]
+        ys_forecast = [v / 100.0 for v in forecast_cents]
+        if ys_actual:
+            ax.plot(range(n_actual), ys_actual, color=color, linewidth=2.2,
+                    marker="o", markersize=3.5, zorder=3)
+            # Connect the segments: dashed line starts at the last actual point.
+            xs_f = list(range(n_actual - 1, n_actual + len(ys_forecast)))
+            ys_f = [ys_actual[-1]] + ys_forecast
+        else:
+            xs_f = list(range(len(ys_forecast)))
+            ys_f = ys_forecast
+        ax.plot(xs_f, ys_f, color=color, linewidth=2.2, linestyle=(0, (5, 4)),
+                marker="o", markersize=3.0, markerfacecolor=self._bg(), zorder=3)
+        if ys_actual:
+            boundary = n_actual - 1
+            ax.axvline(boundary, color=c["text_faint"], linewidth=1.0,
+                       linestyle=(0, (2, 3)))
+            ax.text(boundary, 1.02, "Heute", ha="center", va="bottom",
+                    color=c["text_faint"], fontsize=8,
+                    transform=ax.get_xaxis_transform())
+        for idx in (event_indices or []):
+            if 0 <= idx < len(labels):
+                y = (ys_actual + ys_forecast)[idx]
+                ax.plot([idx], [y], marker="o", markersize=7.5,
+                        markerfacecolor=c["amber"], markeredgecolor=self._bg(),
+                        markeredgewidth=1.5, zorder=4)
+        ax.axhline(0, color=c["border"], linewidth=1.0)
+        self.fig.subplots_adjust(left=0.13, right=0.98, top=0.9, bottom=0.2)
+        self.draw()
+
     # -- multi-line trend ---------------------------------------------------
     def line_series(self, labels: list[str], series: list[tuple]) -> None:
         """``series`` = list of (name, values_cents, colour) drawn as lines."""

@@ -24,7 +24,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from modules import history
+from modules import forecast, history
 from modules.money import format_eur, format_eur_short
 from ui import theme
 from ui.views.base_view import BaseView
@@ -97,6 +97,24 @@ class VerlaufView(BaseView):
         line_body.addWidget(self._line_legend)
         self._body.addWidget(self._line_card)
 
+        # Forward projection card ("Blick nach vorn"): the balance line
+        # continues past today as a dashed forecast, drop-off months marked.
+        self._forecast_card, fc_body = self._chart_card("Blick nach vorn: Saldo-Prognose")
+        self._forecast_note = QLabel("")
+        self._forecast_note.setObjectName("Muted")
+        self._forecast_note.setWordWrap(True)
+        fc_body.addWidget(self._forecast_note)
+        self._forecast_canvas = ChartCanvas(c, width=6.6, height=2.9)
+        self._forecast_canvas.setMinimumHeight(250)
+        self._forecast_canvas.setAccessibleName("Saldo-Prognose für die kommenden Monate")
+        fc_body.addWidget(self._forecast_canvas)
+        events_wrap = QWidget()
+        self._forecast_events_layout = QVBoxLayout(events_wrap)
+        self._forecast_events_layout.setContentsMargins(0, 6, 0, 0)
+        self._forecast_events_layout.setSpacing(4)
+        fc_body.addWidget(events_wrap)
+        self._body.addWidget(self._forecast_card)
+
         # Stacked category bars card.
         self._bar_card, bar_body = self._chart_card("Ausgaben nach Kategorie")
         self._bar_canvas = ChartCanvas(c, width=6.6, height=3.1)
@@ -159,6 +177,7 @@ class VerlaufView(BaseView):
         c = self.ctx.colors
         self._line_canvas.set_colors(c)
         self._bar_canvas.set_colors(c)
+        self._forecast_canvas.set_colors(c)
         self.refresh()
 
     # -- data ---------------------------------------------------------------
@@ -180,6 +199,11 @@ class VerlaufView(BaseView):
                 "Erfasse Einnahmen und Ausgaben im Haushaltsbuch")
             self._line_canvas.line_series([], [])
             self._bar_canvas.bars_stacked([], [])
+            self._forecast_canvas.saldo_forecast([], [], [], c["primary"])
+            self._forecast_note.setText(
+                "Sobald Einnahmen und Fixkosten erfasst sind, zeigt die "
+                "Prognose hier den voraussichtlichen Saldo der kommenden Monate.")
+            self._fill_forecast_events([])
             self._fill_line_legend([])
             self._fill_bar_legend([], theme.chart_colors(c))
             return
@@ -222,6 +246,29 @@ class VerlaufView(BaseView):
         self._bar_canvas.bars_stacked(labels, bar_series)
         self._fill_bar_legend(cat_labels, cycle)
 
+        # Forward projection: same horizon as the selected range, connected to
+        # the last months of real history (solid) as a dashed continuation.
+        fpoints = forecast.project(
+            self.ctx.income, self.ctx.fixed, self.ctx.expenses, months=self._months)
+        tail = points[-6:]
+        f_labels = [p.short_label for p in tail] + [p.short_label for p in fpoints]
+        actual = [p.remaining_cents for p in tail]
+        future = [p.remaining_cents for p in fpoints]
+        event_idx = [len(tail) + i for i, p in enumerate(fpoints) if p.events]
+        self._forecast_canvas.saldo_forecast(
+            f_labels, actual, future, c["primary"], event_idx)
+        avg_future = sum(future) // max(1, len(future))
+        self._forecast_note.setText(
+            f"Voraussichtlicher Saldo: Ø {format_eur(avg_future)} pro Monat, "
+            f"kumuliert nach {len(fpoints)} Monaten {format_eur(fpoints[-1].cumulative_cents)}. "
+            "Grundlage: feste Einnahmen, Fixkosten mit ihren Enddaten, wiederkehrende "
+            "Ausgaben sowie der Durchschnitt der einmaligen Ausgaben der letzten "
+            f"{forecast.ONEOFF_HISTORY_MONTHS} Monate.")
+        self._forecast_canvas.setAccessibleDescription(
+            f"Prognose: durchschnittlich {format_eur(avg_future)} Saldo pro Monat "
+            f"über {len(fpoints)} Monate.")
+        self._fill_forecast_events(fpoints)
+
     def _fill_line_legend(self, line_series) -> None:
         while self._line_legend_layout.count():
             item = self._line_legend_layout.takeAt(0)
@@ -232,6 +279,29 @@ class VerlaufView(BaseView):
             self._line_legend_layout.addWidget(
                 self._dot_label(f"{name} · Σ {total}", color))
         self._line_legend_layout.addStretch(1)
+
+    def _fill_forecast_events(self, fpoints) -> None:
+        """List the months where fixed costs start or drop off (max 8 rows)."""
+        while self._forecast_events_layout.count():
+            item = self._forecast_events_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+        c = self.ctx.colors
+        rows = [(p, e) for p in fpoints for e in p.events]
+        if not rows:
+            if fpoints:
+                note = QLabel("Im gewählten Zeitraum endet oder beginnt kein befristeter Posten.")
+                note.setObjectName("Faint")
+                self._forecast_events_layout.addWidget(note)
+            return
+        for p, event in rows[:8]:
+            text = (f"{p.label}: {event} — Fixkosten dann {format_eur(p.fixed_cents)}, "
+                    f"Saldo {format_eur(p.remaining_cents)}")
+            self._forecast_events_layout.addWidget(self._dot_label(text, c["amber"]))
+        if len(rows) > 8:
+            more = QLabel(f"… und {len(rows) - 8} weitere Änderungen im Zeitraum.")
+            more.setObjectName("Faint")
+            self._forecast_events_layout.addWidget(more)
 
     def _fill_bar_legend(self, cat_labels, cycle) -> None:
         while self._bar_legend_layout.count():
