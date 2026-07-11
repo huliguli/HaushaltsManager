@@ -168,7 +168,10 @@ passende Datei herunter, **verifiziert die Prüfsumme** und wendet sie an:
   Update sicherheitshalber abgebrochen).
 
 Ohne Internet startet die App normal weiter. Manuelle Prüfung unter
-**Einstellungen → Updates**.
+**Einstellungen → Updates**. Dort lässt sich optional **„Gefundene Updates
+automatisch installieren"** aktivieren: ein beim Start gefundenes Update wird
+dann ohne Nachfrage heruntergeladen, geprüft und installiert (alle
+Sicherheitsprüfungen bleiben aktiv — nur die Bestätigungsfrage entfällt).
 
 Ein neues Release wird über einen **annotierten Git-Tag** (`git tag -a vX.Y.Z`,
 erste Zeile = Titel, Rest = Änderungshinweise) angestoßen; der GitHub-Actions-Workflow

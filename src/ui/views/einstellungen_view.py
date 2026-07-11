@@ -106,6 +106,23 @@ class EinstellungenView(BaseView):
             lambda v: self.ctx.config.set("update_check_enabled", bool(v)))
         layout.addWidget(self._auto_check)
 
+        # Opt-in one step further: found updates install themselves. The same
+        # safety net as the manual path applies (checksum + fail-closed
+        # Authenticode pin) — only the confirmation dialog is skipped.
+        self._auto_install = QCheckBox("Gefundene Updates automatisch installieren")
+        self._auto_install.setChecked(bool(self.ctx.config.get("update_auto_install", False)))
+        self._auto_install.setEnabled(self._auto_check.isChecked())
+        self._auto_install.toggled.connect(
+            lambda v: self.ctx.config.set("update_auto_install", bool(v)))
+        self._auto_check.toggled.connect(self._auto_install.setEnabled)
+        layout.addWidget(self._auto_install)
+        auto_hint = QLabel(
+            "Ohne Nachfrage: Das Update wird beim Start heruntergeladen, "
+            "Prüfsumme und Signatur werden geprüft, danach startet die App neu.")
+        auto_hint.setObjectName("Faint")
+        auto_hint.setWordWrap(True)
+        layout.addWidget(auto_hint)
+
         row = QHBoxLayout()
         self._version_label = QLabel(f"Installierte Version: v{APP_VERSION}")
         self._version_label.setObjectName("Muted")
@@ -137,6 +154,16 @@ class EinstellungenView(BaseView):
             return
         self._update_status.setText(f"Neue Version verfügbar: v{info.version}")
         self.show_update_dialog(info)
+
+    def auto_install(self, info) -> None:
+        """Startup auto-update (opt-in): install without the confirmation dialog.
+
+        Reuses the exact manual pipeline — download with progress, checksum
+        verification, fail-closed signature check — only the question is skipped.
+        """
+        self._update_status.setText(
+            f"Update auf v{info.version} wird automatisch installiert …")
+        self._install(info)
 
     def show_update_dialog(self, info) -> None:
         from ui.update_dialog import UpdateDialog

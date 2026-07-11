@@ -235,6 +235,12 @@ class MainWindow(QWidget):
             return
         # The Settings view owns the update dialog/installer flow.
         settings_view = self._views[-1]
+        # Opt-in auto-update: install straight away instead of asking. The
+        # install path keeps every safety check (checksum + signature pin).
+        if self.ctx.config.get("update_auto_install", False) and info.asset_url \
+                and hasattr(settings_view, "auto_install"):
+            settings_view.auto_install(info)
+            return
         if hasattr(settings_view, "show_update_dialog"):
             settings_view.show_update_dialog(info)
 
