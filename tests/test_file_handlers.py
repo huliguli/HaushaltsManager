@@ -169,3 +169,26 @@ def test_pdf_report_and_amount_extraction(tmp_path):
     cents_values = [a["cents"] for a in amounts]
     assert 230_000 in cents_values
     assert all(isinstance(a["cents"], int) for a in amounts)
+
+
+def test_reports_carry_the_app_version_stamp(tmp_path):
+    # A report must reveal which app version produced it — that is how an
+    # "old-looking" export is told apart from a caching problem (there is no
+    # cache; exports are always generated live).
+    from app_meta import APP_VERSION
+
+    overview, fixed, expenses, credits = _sample()
+    wb_path = excel_io.export_workbook(
+        tmp_path / "stamp.xlsx", income=[], fixed_costs=fixed,
+        expenses=expenses, credits=credits, overview=overview)
+    subtitle = load_workbook(wb_path)["Übersicht"].cell(row=2, column=1).value
+    assert f"HaushaltsManager {APP_VERSION}" in subtitle
+
+    pdf_path = pdf_report.generate_monthly_report(
+        tmp_path / "stamp.pdf", year=2026, month=6, overview=overview,
+        fixed_costs=fixed, expenses=expenses, credits=credits)
+    import fitz
+    doc = fitz.open(pdf_path)
+    text = "".join(page.get_text() for page in doc)
+    doc.close()
+    assert f"HaushaltsManager {APP_VERSION}" in text

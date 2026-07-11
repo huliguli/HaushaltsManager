@@ -30,6 +30,7 @@ from reportlab.platypus import (
     TableStyle,
 )
 
+from app_meta import APP_VERSION
 from modules import dates
 from modules.calculator import timeline
 from modules.money import format_eur, format_eur_short
@@ -410,7 +411,9 @@ def generate_year_report(path: str | Path, *, overview, prev_overview=None) -> P
             [_CONTENT_W * 0.28, _CONTENT_W * 0.24, _CONTENT_W * 0.24,
              _CONTENT_W * 0.24], right_cols=(1, 2, 3)))
 
-    deco = _footer(f"HaushaltsManager · Jahresbericht {year}")
+    # Version stamp: a report must reveal which app version produced it (an
+    # old-looking export is then diagnosable at a glance).
+    deco = _footer(f"HaushaltsManager {APP_VERSION} · Jahresbericht {year}")
     doc.build(story, onFirstPage=deco, onLaterPages=deco)
     return Path(path)
 
@@ -489,6 +492,7 @@ def generate_monthly_report(
                 f"… und {len(expenses) - len(shown)} weitere Buchungen "
                 f"(vollständig im Excel-Monatsüberblick).", styles["HMMuted"]))
 
-    deco = _footer(f"HaushaltsManager · Monatsbericht {month_label}")
+    # Version stamp (see year report): which app version produced this file.
+    deco = _footer(f"HaushaltsManager {APP_VERSION} · Monatsbericht {month_label}")
     doc.build(story, onFirstPage=deco, onLaterPages=deco)
     return Path(path)

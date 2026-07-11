@@ -24,6 +24,7 @@ from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.properties import PageSetupProperties
 
+from app_meta import APP_VERSION
 from modules import dates
 from modules.calculator import annuity, timeline
 from modules.models import CREDIT_STATUS_LABELS, INCOME_TYPE_LABELS
@@ -103,7 +104,10 @@ def _sheet_title(ws, title: str, subtitle: str, span: int,
     t = ws.cell(row=1, column=1, value=title)
     t.font = _TITLE_FONT
     t.alignment = Alignment(horizontal="left", vertical="bottom", indent=1)
-    s = ws.cell(row=2, column=1, value=subtitle)
+    # Version stamp: every sheet names the app version that produced it, so an
+    # old-looking export is diagnosable at a glance (not mistaken for caching).
+    s = ws.cell(row=2, column=1,
+                value=f"{subtitle} · HaushaltsManager {APP_VERSION}")
     s.font = _SUBTITLE_FONT
     s.alignment = Alignment(horizontal="left", vertical="top", indent=1)
     ws.row_dimensions[1].height = 24
