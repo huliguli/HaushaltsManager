@@ -193,6 +193,11 @@ class VariableExpenseRepository:
             "SELECT * FROM variable_expenses WHERE recurring = 1 ORDER BY id")
         return [VariableExpense.from_row(r) for r in rows]
 
+    def min_date(self) -> str | None:
+        """ISO date of the oldest booking (None on an empty table)."""
+        row = self.db.query_one("SELECT MIN(date) AS d FROM variable_expenses")
+        return row["d"] if row and row["d"] else None
+
     def get(self, row_id: int) -> VariableExpense | None:
         row = self.db.query_one("SELECT * FROM variable_expenses WHERE id = ?", (row_id,))
         return VariableExpense.from_row(row) if row else None
@@ -279,6 +284,11 @@ class VariableIncomeRepository:
         rows = self.db.query(
             "SELECT * FROM variable_income ORDER BY date DESC, id DESC LIMIT ?", (limit,))
         return [VariableIncome.from_row(r) for r in rows]
+
+    def min_date(self) -> str | None:
+        """ISO date of the oldest one-off income (None on an empty table)."""
+        row = self.db.query_one("SELECT MIN(date) AS d FROM variable_income")
+        return row["d"] if row and row["d"] else None
 
 
 class CreditRepository:

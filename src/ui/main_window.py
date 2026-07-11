@@ -78,6 +78,7 @@ class MainWindow(QWidget):
 
         self.ctx.data_changed.connect(self._refresh_current)
         self.ctx.theme_changed.connect(self._on_theme_changed)
+        self.ctx.drilldown_requested.connect(self._on_drilldown)
 
         self._init_shortcuts()
         self._restore_geometry()
@@ -182,6 +183,15 @@ class MainWindow(QWidget):
 
     def _refresh_current(self) -> None:
         self._views[self._stack.currentIndex()].refresh()
+
+    def _on_drilldown(self, year: int, month: int, category: str) -> None:
+        """Chart drilldown: open the Haushaltsbuch expenses, filtered."""
+        index = next(
+            (i for i, (_l, _i, cls) in enumerate(_NAV) if cls is HaushaltsbuchView), None)
+        if index is None:
+            return
+        self._select(index)
+        self._views[index].show_expenses_filter(year, month, category or None)
 
     # -- theme --------------------------------------------------------------
     def _toggle_theme(self) -> None:

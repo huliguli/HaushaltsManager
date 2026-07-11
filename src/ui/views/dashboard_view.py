@@ -37,6 +37,20 @@ from ui.widgets.common import StatCard, clear_layout, heading, muted, primary_bu
 from ui.widgets.month_nav import MonthNavigator
 
 
+class _ClickableRow(QWidget):
+    """Row wrapper that fires a callback on left click (chart drilldown)."""
+
+    def __init__(self, on_click) -> None:
+        super().__init__()
+        self._on_click = on_click
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+
+    def mousePressEvent(self, event) -> None:
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._on_click()
+        super().mousePressEvent(event)
+
+
 class DashboardView(BaseView):
     def __init__(self, ctx) -> None:
         super().__init__(ctx)
@@ -233,7 +247,8 @@ class DashboardView(BaseView):
             cycle = theme.chart_colors(c)
             slice_colors = [cycle[i % len(cycle)] for i in range(len(labels))]
             canvas.donut(labels, values, slice_colors,
-                         center_text=format_eur_short(ov.variable_cents))
+                         center_text=format_eur_short(ov.variable_cents),
+                         on_slice=self._drill_category)
             top = ", ".join(f"{k} {format_eur(v)}" for k, v in list(by_cat.items())[:3])
             canvas.setAccessibleDescription(f"Größte Kategorien: {top}.")
         else:
@@ -243,8 +258,15 @@ class DashboardView(BaseView):
         if by_cat:
             legend = self._donut_legend(by_cat, c)
             cl.addWidget(legend)
+            hint = QLabel("Klick auf ein Segment öffnet die Buchungen im Haushaltsbuch.")
+            hint.setObjectName("Faint")
+            cl.addWidget(hint)
         layout.addWidget(chart_panel, 1)
         return row
+
+    def _drill_category(self, category: str) -> None:
+        """Donut slice / budget row click: jump to the filtered Haushaltsbuch."""
+        self.ctx.request_drilldown(self._year, self._month, category)
 
     # -- category budgets ---------------------------------------------------
     def _budget_panel(self, ov, c) -> QWidget | None:
@@ -284,7 +306,8 @@ class DashboardView(BaseView):
         return panel
 
     def _budget_row(self, cat: str, spent: int, limit: int, c) -> QWidget:
-        wrap = QWidget()
+        wrap = _ClickableRow(lambda: self._drill_category(cat))
+        wrap.setToolTip(f"Buchungen in „{cat}“ anzeigen")
         box = QVBoxLayout(wrap)
         box.setContentsMargins(0, 0, 0, 0)
         box.setSpacing(4)

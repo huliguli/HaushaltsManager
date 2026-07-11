@@ -36,6 +36,28 @@ class ChartCanvas(FigureCanvasQTAgg):
         self.fig = Figure(figsize=(width, height), dpi=100)
         super().__init__(self.fig)
         self.colors = colors
+        # Drilldown wiring (v3.2): the views may register a click callback per
+        # chart type; the single mpl handler below dispatches to whichever one
+        # the current chart set. Connected once per canvas instance.
+        self._on_slice = None            # donut: called with the slice label
+        self._on_month = None            # line/bars: called with the x index
+        self._donut_wedges: list = []    # [(wedge, label)] of the current donut
+        self._month_count = 0            # x range of the current line/bar chart
+        self.mpl_connect("button_press_event", self._on_click)
+
+    def _on_click(self, event) -> None:
+        if event.button != 1:
+            return
+        if self._on_slice and self._donut_wedges:
+            for wedge, label in self._donut_wedges:
+                if wedge.contains_point((event.x, event.y)):
+                    self._on_slice(label)
+                    return
+        if self._on_month and self._month_count and event.xdata is not None \
+                and event.inaxes is not None:
+            index = round(event.xdata)
+            if 0 <= index < self._month_count and abs(event.xdata - index) <= 0.5:
+                self._on_month(index)
 
     def set_colors(self, colors: dict) -> None:
         """Swap the palette (caller redraws), so theme toggles need no rebuild."""
@@ -50,10 +72,17 @@ class ChartCanvas(FigureCanvasQTAgg):
         ax.axis("off")
         self.draw()
 
+    def _reset_click_targets(self) -> None:
+        self._on_slice = None
+        self._on_month = None
+        self._donut_wedges = []
+        self._month_count = 0
+
     # -- donut (categorical share) -----------------------------------------
     def donut(self, labels: list[str], values: list[float], slice_colors: list[str],
-              center_text: str = "") -> None:
+              center_text: str = "", on_slice=None) -> None:
         self.fig.clear()
+        self._reset_click_targets()
         self.fig.patch.set_facecolor(self._bg())
         ax = self.fig.add_axes((0.0, 0.0, 1.0, 1.0))
         ax.set_facecolor(self._bg())
@@ -64,11 +93,14 @@ class ChartCanvas(FigureCanvasQTAgg):
             return
         ax.set_xlim(-1.6, 1.6)
         ax.set_ylim(-1.18, 1.18)
-        ax.pie(
+        wedges, _ = ax.pie(
             values, colors=slice_colors, startangle=90, counterclock=False,
             radius=1.0, center=(0.0, 0.0),
             wedgeprops=dict(width=0.42, edgecolor=self._bg(), linewidth=2),
         )
+        if on_slice is not None:
+            self._on_slice = on_slice
+            self._donut_wedges = list(zip(wedges, labels))
         if center_text:
             ax.text(0, 0, center_text, ha="center", va="center",
                     color=self.colors["text"], fontsize=13, fontweight="bold")
@@ -106,6 +138,7 @@ class ChartCanvas(FigureCanvasQTAgg):
         months are visible directly in the line.
         """
         self.fig.clear()
+        self._reset_click_targets()
         ax = self.fig.add_subplot(111)
         if not labels or not forecast_cents:
             ax.set_facecolor(self._bg())
@@ -145,14 +178,22 @@ class ChartCanvas(FigureCanvasQTAgg):
         self.draw()
 
     # -- multi-line trend ---------------------------------------------------
-    def line_series(self, labels: list[str], series: list[tuple]) -> None:
-        """``series`` = list of (name, values_cents, colour) drawn as lines."""
+    def line_series(self, labels: list[str], series: list[tuple],
+                    on_month=None) -> None:
+        """``series`` = list of (name, values_cents, colour) drawn as lines.
+
+        ``on_month`` (optional) is called with the clicked month index.
+        """
         self.fig.clear()
+        self._reset_click_targets()
         ax = self.fig.add_subplot(111)
         if not labels or not series:
             ax.set_facecolor(self._bg())
             self._no_data(ax)
             return
+        if on_month is not None:
+            self._on_month = on_month
+            self._month_count = len(labels)
         self._style_axes(ax, labels)
         xs = list(range(len(labels)))
         for name, values, color in series:
@@ -166,15 +207,23 @@ class ChartCanvas(FigureCanvasQTAgg):
         self.draw()
 
     # -- stacked category bars ---------------------------------------------
-    def bars_stacked(self, labels: list[str], series: list[tuple]) -> None:
-        """``series`` = list of (name, values_cents, colour) stacked per month."""
+    def bars_stacked(self, labels: list[str], series: list[tuple],
+                     on_month=None) -> None:
+        """``series`` = list of (name, values_cents, colour) stacked per month.
+
+        ``on_month`` (optional) is called with the clicked month index.
+        """
         self.fig.clear()
+        self._reset_click_targets()
         ax = self.fig.add_subplot(111)
         total = sum(sum(v for v in values) for _n, values, _c in series) if series else 0
         if not labels or not series or total <= 0:
             ax.set_facecolor(self._bg())
             self._no_data(ax)
             return
+        if on_month is not None:
+            self._on_month = on_month
+            self._month_count = len(labels)
         self._style_axes(ax, labels)
         xs = list(range(len(labels)))
         bottoms = [0.0] * len(labels)

@@ -7,6 +7,7 @@ from datetime import date
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
+    QComboBox,
     QFileDialog,
     QFrame,
     QHBoxLayout,
@@ -17,7 +18,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from modules import dates, platform_util
+from modules import annual, dates, platform_util
 from modules.bank_import import parsers as bank_parsers
 from modules.bank_import.categorize import Categorizer
 from modules.bank_import.commit import commit_transactions
@@ -116,6 +117,31 @@ class ImportExportView(BaseView):
             "PDF-Monatsbericht",
             "Zusammenfassung des gewählten Monats mit Tabellen und Diagramm.",
             "Als PDF speichern…", self._export_pdf))
+
+        # Year picker for the annual report (populated in refresh()).
+        year_picker = QFrame()
+        year_picker.setObjectName("Panel")
+        yl = QHBoxLayout(year_picker)
+        yl.setContentsMargins(14, 8, 14, 8)
+        yl.setSpacing(10)
+        ylbl = QLabel("Jahr für den Jahresbericht")
+        ylbl.setObjectName("FieldLabel")
+        yl.addWidget(ylbl)
+        yl.addStretch(1)
+        self._year_combo = QComboBox()
+        self._year_combo.setAccessibleName("Jahr für den Jahresbericht")
+        yl.addWidget(self._year_combo)
+        layout.addWidget(year_picker)
+
+        layout.addWidget(self._action(
+            "Excel-Jahresbericht",
+            "Jahresübersicht mit Vorjahresvergleich, Sparquote, Monatstabelle und "
+            "Kategorie-Monats-Matrix.",
+            "Als Excel speichern…", self._export_year_excel))
+        layout.addWidget(self._action(
+            "PDF-Jahresbericht",
+            "Jahreszusammenfassung mit Vorjahresvergleich, Diagramm und Monatsüberblick.",
+            "Als PDF speichern…", self._export_year_pdf))
         layout.addStretch(1)
         return card
 
@@ -361,6 +387,46 @@ class ImportExportView(BaseView):
         except Exception as exc:  # noqa: BLE001
             QMessageBox.critical(self, "Export fehlgeschlagen", f"Der Bericht konnte nicht erstellt werden.\n\n{exc}")
 
+    def _annual_overviews(self, year: int):
+        """(YearOverview, prev YearOverview) for the report generators."""
+        args = (self.ctx.income, self.ctx.fixed, self.ctx.expenses, self.ctx.var_income)
+        return annual.build(*args, year), annual.build(*args, year - 1)
+
+    def _selected_year(self) -> int:
+        return self._year_combo.currentData() or date.today().year
+
+    def _export_year_excel(self) -> None:
+        year = self._selected_year()
+        default = f"HaushaltsManager-Jahresbericht-{year}.xlsx"
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Excel-Jahresbericht speichern", default, "Excel (*.xlsx)")
+        if not path:
+            return
+        try:
+            from modules.file_handler import excel_io as _excel
+            overview, prev = self._annual_overviews(year)
+            out = _excel.export_year_workbook(path, overview=overview, prev_overview=prev)
+            self._export_done(str(out))
+        except Exception as exc:  # noqa: BLE001
+            QMessageBox.critical(self, "Export fehlgeschlagen",
+                                 f"Die Datei konnte nicht erstellt werden.\n\n{exc}")
+
+    def _export_year_pdf(self) -> None:
+        year = self._selected_year()
+        default = f"Jahresbericht-{year}.pdf"
+        path, _ = QFileDialog.getSaveFileName(
+            self, "PDF-Jahresbericht speichern", default, "PDF (*.pdf)")
+        if not path:
+            return
+        try:
+            overview, prev = self._annual_overviews(year)
+            out = pdf_report.generate_year_report(
+                path, overview=overview, prev_overview=prev)
+            self._export_done(str(out))
+        except Exception as exc:  # noqa: BLE001
+            QMessageBox.critical(self, "Export fehlgeschlagen",
+                                 f"Der Bericht konnte nicht erstellt werden.\n\n{exc}")
+
     def _export_done(self, path: str) -> None:
         box = QMessageBox(self)
         box.setIcon(QMessageBox.Icon.Information)
@@ -373,7 +439,16 @@ class ImportExportView(BaseView):
             platform_util.open_path(os.path.dirname(path))
 
     def refresh(self) -> None:
-        pass
+        # Keep the year picker in sync with the data (new bookings can add years).
+        years = annual.available_years(self.ctx.expenses, self.ctx.var_income)
+        current = [self._year_combo.itemData(i) for i in range(self._year_combo.count())]
+        if years != current:
+            selected = self._year_combo.currentData()
+            self._year_combo.clear()
+            for y in years:
+                self._year_combo.addItem(str(y), y)
+            if selected in years:
+                self._year_combo.setCurrentIndex(years.index(selected))
 
     def month_navigator(self):
         # Strg+Bild↑/↓ steps the export month picker.

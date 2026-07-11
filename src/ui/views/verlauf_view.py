@@ -14,22 +14,26 @@ from datetime import date
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
+    QAbstractItemView,
     QComboBox,
     QFrame,
     QGridLayout,
     QHBoxLayout,
+    QHeaderView,
     QLabel,
     QScrollArea,
+    QTableWidget,
+    QTableWidgetItem,
     QVBoxLayout,
     QWidget,
 )
 
-from modules import forecast, history
+from modules import annual, dates, forecast, history
 from modules.money import format_eur, format_eur_short
 from ui import theme
 from ui.views.base_view import BaseView
 from ui.widgets.chart_canvas import ChartCanvas
-from ui.widgets.common import StatCard, heading, muted
+from ui.widgets.common import StatCard, align_table_headers, heading, muted
 
 _RANGES = [("6 Monate", 6), ("12 Monate", 12), ("24 Monate", 24)]
 
@@ -95,6 +99,9 @@ class VerlaufView(BaseView):
         line_body.addWidget(self._line_canvas)
         self._line_legend = self._legend_row()
         line_body.addWidget(self._line_legend)
+        line_hint = QLabel("Klick auf einen Monat öffnet dessen Buchungen im Haushaltsbuch.")
+        line_hint.setObjectName("Faint")
+        line_body.addWidget(line_hint)
         self._body.addWidget(self._line_card)
 
         # Forward projection card ("Blick nach vorn"): the balance line
@@ -128,6 +135,49 @@ class VerlaufView(BaseView):
         self._bar_legend_layout.setVerticalSpacing(4)
         bar_body.addWidget(self._bar_legend)
         self._body.addWidget(self._bar_card)
+
+        # Jahresübersicht card: whole calendar years with YoY comparison,
+        # savings rate and the category × month matrix (v3.2.0).
+        self._year_card, year_body = self._chart_card("Jahresübersicht")
+        year_head = QHBoxLayout()
+        self._year_note = QLabel("")
+        self._year_note.setObjectName("Muted")
+        self._year_note.setWordWrap(True)
+        year_head.addWidget(self._year_note, 1)
+        year_head.addWidget(self._range_label("Jahr"))
+        self._year_combo = QComboBox()
+        self._year_combo.setAccessibleName("Jahr für die Jahresübersicht")
+        self._year_combo.currentIndexChanged.connect(self._on_year_changed)
+        year_head.addWidget(self._year_combo)
+        year_body.addLayout(year_head)
+
+        self._year_kpis = QWidget()
+        year_kpi_layout = QHBoxLayout(self._year_kpis)
+        year_kpi_layout.setContentsMargins(0, 4, 0, 0)
+        year_kpi_layout.setSpacing(16)
+        self._year_income = StatCard("Einnahmen", c["blue"])
+        self._year_expenses = StatCard("Ausgaben", c["amber"])
+        self._year_saldo = StatCard("Saldo (gespart)", c["green"])
+        self._year_rate = StatCard("Sparquote", c["primary"])
+        for card in (self._year_income, self._year_expenses,
+                     self._year_saldo, self._year_rate):
+            year_kpi_layout.addWidget(card, 1)
+        year_body.addWidget(self._year_kpis)
+
+        self._matrix = QTableWidget(0, 14)
+        self._matrix.setHorizontalHeaderLabels(
+            ["Kategorie"] + [dates.month_name(m)[:3] for m in range(1, 13)] + ["Summe"])
+        self._matrix.verticalHeader().setVisible(False)
+        self._matrix.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self._matrix.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
+        self._matrix.setAlternatingRowColors(True)
+        self._matrix.setShowGrid(False)
+        self._matrix.verticalHeader().setDefaultSectionSize(28)
+        self._matrix.setMinimumHeight(160)
+        self._matrix.setMaximumHeight(320)
+        self._matrix.setAccessibleName("Ausgaben je Kategorie und Monat")
+        year_body.addWidget(self._matrix)
+        self._body.addWidget(self._year_card)
         self._body.addStretch(1)
 
     # -- builders -----------------------------------------------------------
@@ -173,6 +223,16 @@ class VerlaufView(BaseView):
         self._months = self._range.currentData()
         self.refresh()
 
+    def _on_year_changed(self) -> None:
+        self._refresh_year_card()
+
+    def _drill_month(self, index: int) -> None:
+        """Chart click: open the Haushaltsbuch on the clicked month."""
+        points = getattr(self, "_points", [])
+        if 0 <= index < len(points):
+            p = points[index]
+            self.ctx.request_drilldown(p.year, p.month, "")
+
     def on_theme_changed(self) -> None:
         c = self.ctx.colors
         self._line_canvas.set_colors(c)
@@ -187,6 +247,9 @@ class VerlaufView(BaseView):
             self.ctx.income, self.ctx.fixed, self.ctx.expenses, self.ctx.var_income,
             self.ctx.summaries, months=self._months, ref=date.today())
         labels = [p.short_label for p in points]
+
+        self._points = points  # month lookup for the chart drilldown
+        self._refresh_year_card()
 
         # Empty history: no entry in the whole range. Show a clear pointer to
         # the household book instead of a wall of misleading "0,00 €" KPIs.
@@ -232,7 +295,7 @@ class VerlaufView(BaseView):
             ("Ausgaben", out_series, c["amber"]),
             ("Saldo", [p.remaining_cents for p in points], c["green"]),
         ]
-        self._line_canvas.line_series(labels, line_series)
+        self._line_canvas.line_series(labels, line_series, on_month=self._drill_month)
         self._line_canvas.setAccessibleDescription(
             f"Ø Einnahmen {format_eur(avg_income)}, Ø Ausgaben {format_eur(avg_out)}, "
             f"Ø Saldo {format_eur(avg_saldo)} über {n} Monate.")
@@ -243,7 +306,7 @@ class VerlaufView(BaseView):
         cycle = theme.chart_colors(c)
         bar_series = [(cat, per_month[cat], cycle[i % len(cycle)])
                       for i, cat in enumerate(cat_labels)]
-        self._bar_canvas.bars_stacked(labels, bar_series)
+        self._bar_canvas.bars_stacked(labels, bar_series, on_month=self._drill_month)
         self._fill_bar_legend(cat_labels, cycle)
 
         # Forward projection: same horizon as the selected range, connected to
@@ -302,6 +365,106 @@ class VerlaufView(BaseView):
             more = QLabel(f"… und {len(rows) - 8} weitere Änderungen im Zeitraum.")
             more.setObjectName("Faint")
             self._forecast_events_layout.addWidget(more)
+
+    # -- Jahresübersicht ------------------------------------------------------
+    def _refresh_year_card(self) -> None:
+        c = self.ctx.colors
+        years = annual.available_years(self.ctx.expenses, self.ctx.var_income)
+        current = [self._year_combo.itemData(i) for i in range(self._year_combo.count())]
+        if years != current:
+            selected = self._year_combo.currentData()
+            blocked = self._year_combo.blockSignals(True)
+            self._year_combo.clear()
+            for y in years:
+                self._year_combo.addItem(str(y), y)
+            if selected in years:
+                self._year_combo.setCurrentIndex(years.index(selected))
+            self._year_combo.blockSignals(blocked)
+        year = self._year_combo.currentData() or date.today().year
+
+        ov = annual.build(self.ctx.income, self.ctx.fixed, self.ctx.expenses,
+                          self.ctx.var_income, year)
+        prev = annual.build(self.ctx.income, self.ctx.fixed, self.ctx.expenses,
+                            self.ctx.var_income, year - 1)
+        has_prev = prev.has_data
+
+        covered = ("ganzes Jahr" if ov.months_covered == 12
+                   else f"Januar bis {dates.month_name(max(1, ov.months_covered))}")
+        note = f"Kalenderjahr {year} ({covered})"
+        if has_prev:
+            note += f" im Vergleich zu {year - 1}"
+        note += ". Der Jahresbericht als Excel/PDF steht unter Import / Export bereit."
+        self._year_note.setText(note)
+
+        def yoy(card: StatCard, cur: int, prev_val: int, *, good_up: bool) -> None:
+            if not has_prev or cur == prev_val:
+                card.set_delta("", c["text_faint"])
+                return
+            d = cur - prev_val
+            arrow = "▲" if d > 0 else "▼"
+            good = (d > 0) == good_up
+            card.set_delta(f"{arrow} {format_eur(abs(d))} ggü. Vorjahr",
+                           c["green"] if good else c["red"])
+
+        self._year_income.set_value(format_eur(ov.income_cents), c["text"])
+        self._year_income.set_hint(f"{ov.months_covered} Monate")
+        yoy(self._year_income, ov.income_cents, prev.income_cents, good_up=True)
+        self._year_expenses.set_value(format_eur(ov.expenses_cents), c["text"])
+        self._year_expenses.set_hint("Fix + variabel")
+        yoy(self._year_expenses, ov.expenses_cents, prev.expenses_cents, good_up=False)
+        saldo_color = c["green"] if ov.remaining_cents >= 0 else c["red"]
+        self._year_saldo.set_accent(saldo_color)
+        self._year_saldo.set_value(format_eur(ov.remaining_cents), saldo_color)
+        self._year_saldo.set_hint("Einnahmen − alle Ausgaben")
+        yoy(self._year_saldo, ov.remaining_cents, prev.remaining_cents, good_up=True)
+
+        rate = ov.savings_rate
+        if rate is None:
+            self._year_rate.set_value("–", c["text_faint"])
+            self._year_rate.set_hint("Keine Einnahmen erfasst")
+            self._year_rate.set_delta("", c["text_faint"])
+        else:
+            rate_color = c["green"] if rate >= 0 else c["red"]
+            self._year_rate.set_value(f"{rate * 100:.1f} %".replace(".", ","), rate_color)
+            self._year_rate.set_hint("Gesparter Anteil der Einnahmen")
+            if has_prev and prev.savings_rate is not None:
+                d = (rate - prev.savings_rate) * 100
+                if abs(d) >= 0.05:
+                    arrow = "▲" if d > 0 else "▼"
+                    txt = f"{arrow} {abs(d):.1f} Prozentpunkte ggü. Vorjahr".replace(".", ",")
+                    self._year_rate.set_delta(txt, c["green"] if d > 0 else c["red"])
+                else:
+                    self._year_rate.set_delta("", c["text_faint"])
+            else:
+                self._year_rate.set_delta("", c["text_faint"])
+
+        self._fill_matrix(ov)
+
+    def _fill_matrix(self, ov) -> None:
+        categories, per_month = annual.category_matrix(ov)
+        self._matrix.setRowCount(len(categories))
+        for r, cat in enumerate(categories):
+            name = QTableWidgetItem(cat)
+            name.setFlags(name.flags() & ~Qt.ItemFlag.ItemIsEditable)
+            self._matrix.setItem(r, 0, name)
+            for m in range(12):
+                cents = per_month[cat][m]
+                cell = QTableWidgetItem(format_eur_short(cents) if cents else "–")
+                cell.setFlags(cell.flags() & ~Qt.ItemFlag.ItemIsEditable)
+                cell.setTextAlignment(
+                    Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+                self._matrix.setItem(r, 1 + m, cell)
+            total = QTableWidgetItem(format_eur(sum(per_month[cat])))
+            total.setFlags(total.flags() & ~Qt.ItemFlag.ItemIsEditable)
+            total.setTextAlignment(
+                Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+            self._matrix.setItem(r, 13, total)
+        header = self._matrix.horizontalHeader()
+        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        for col in range(1, 14):
+            header.setSectionResizeMode(col, QHeaderView.ResizeMode.ResizeToContents)
+        align_table_headers(self._matrix, right_cols=tuple(range(1, 14)))
+        self._matrix.setVisible(bool(categories))
 
     def _fill_bar_legend(self, cat_labels, cycle) -> None:
         while self._bar_legend_layout.count():

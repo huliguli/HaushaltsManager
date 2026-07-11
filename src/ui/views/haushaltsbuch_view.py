@@ -423,28 +423,35 @@ class _ExpensesTab(QWidget):
         nav.addWidget(self.total)
         layout.addLayout(nav)
 
-        # Row 2: cross-month search + category filter. While either is active the
-        # table shows matches across ALL months (answering "what did I spend at
-        # X this year?"); when both are cleared it returns to the single-month view.
+        # Row 2: search + category filter + scope. The scope decides whether the
+        # filters apply to the selected month or across ALL months; typing a
+        # search auto-switches to "Alle Monate" (the classic "what did I spend
+        # at X this year?"), the chart drilldown sets month + category scope.
         filters = QHBoxLayout()
         filters.setSpacing(10)
         self.search = QLineEdit()
-        self.search.setPlaceholderText("Suchen (Beschreibung, über alle Monate) …")
+        self.search.setPlaceholderText("Suchen (Beschreibung) …")
         self.search.setClearButtonEnabled(True)
         self.search.setAccessibleName("Ausgaben durchsuchen")
-        self.search.textChanged.connect(self._on_filter_changed)
+        self.search.textChanged.connect(self._on_search_changed)
         self.cat_filter = QComboBox()
         self.cat_filter.addItem("Alle Kategorien", None)
         for cat in EXPENSE_CATEGORIES:
             self.cat_filter.addItem(cat, cat)
         self.cat_filter.setAccessibleName("Nach Kategorie filtern")
         self.cat_filter.currentIndexChanged.connect(self._on_filter_changed)
+        self.scope = QComboBox()
+        self.scope.addItem("Nur gewählter Monat", "month")
+        self.scope.addItem("Alle Monate", "all")
+        self.scope.setAccessibleName("Suchbereich: gewählter Monat oder alle Monate")
+        self.scope.currentIndexChanged.connect(self._on_filter_changed)
         self._reset_btn = QPushButton("Zurücksetzen")
         self._reset_btn.setObjectName("Ghost")
         self._reset_btn.clicked.connect(self._reset_filters)
         filters.addWidget(QLabel("Filter:"))
         filters.addWidget(self.search, 1)
         filters.addWidget(self.cat_filter)
+        filters.addWidget(self.scope)
         filters.addWidget(self._reset_btn)
         layout.addLayout(filters)
 
@@ -472,11 +479,41 @@ class _ExpensesTab(QWidget):
     def _on_filter_changed(self, *_args) -> None:
         self.refresh()
 
+    def _on_search_changed(self, text: str) -> None:
+        # Typing a search widens the scope to all months (the classic use case);
+        # switching back to the month scope stays a deliberate user choice.
+        if text.strip() and self.scope.currentData() == "month":
+            blocked = self.scope.blockSignals(True)
+            self.scope.setCurrentIndex(1)
+            self.scope.blockSignals(blocked)
+        self.refresh()
+
     def _reset_filters(self) -> None:
-        blocked = self.search.blockSignals(True)
+        for widget in (self.search, self.cat_filter, self.scope):
+            widget.blockSignals(True)
         self.search.clear()
-        self.search.blockSignals(blocked)
         self.cat_filter.setCurrentIndex(0)
+        self.scope.setCurrentIndex(0)
+        for widget in (self.search, self.cat_filter, self.scope):
+            widget.blockSignals(False)
+        self.refresh()
+
+    def apply_filter(self, year: int, month: int, category: str | None) -> None:
+        """Drilldown entry point: show (year, month), filtered to ``category``.
+
+        A category the combo does not know (e.g. a custom import category)
+        falls back to "Alle Kategorien" — the month jump still happens.
+        """
+        self._year, self._month = year, month
+        self._nav.set_month(year, month)
+        for widget in (self.search, self.cat_filter, self.scope):
+            widget.blockSignals(True)
+        self.search.clear()
+        self.scope.setCurrentIndex(0)                    # month scope
+        index = self.cat_filter.findData(category) if category else 0
+        self.cat_filter.setCurrentIndex(index if index >= 0 else 0)
+        for widget in (self.search, self.cat_filter, self.scope):
+            widget.blockSignals(False)
         self.refresh()
 
     def _is_filtering(self) -> bool:
@@ -497,19 +534,30 @@ class _ExpensesTab(QWidget):
 
     def refresh(self) -> None:
         self._nav.refresh_icons(self.ctx.colors)   # keep chevrons themed
-        filtering = self._is_filtering()
+        cross_month = self.scope.currentData() == "all"
         # When filtering across months, the month navigator does not apply.
-        self._nav.setEnabled(not filtering)
-        if filtering:
+        self._nav.setEnabled(not cross_month)
+        if cross_month:
             items = self._filtered_items()
             total = sum(it.amount_cents for it in items)
             self.total.setText(f"{len(items)} Treffer · Summe {format_eur(total)}")
         else:
             # Month view: one-off expenses of this month + every recurring expense
-            # that has started by now (materialised on the fly).
+            # that has started by now (materialised on the fly) — optionally
+            # narrowed by category/search (e.g. via chart drilldown).
             items = self.ctx.expenses.list_for_month(self._year, self._month)
-            self.total.setText(
-                f"Summe: {format_eur(self.ctx.expenses.total_for_month(self._year, self._month))}")
+            term = self.search.text().strip().lower()
+            cat = self.cat_filter.currentData()
+            if cat:
+                items = [it for it in items if it.category == cat]
+            if term:
+                items = [it for it in items if term in (it.description or "").lower()]
+            if cat or term:
+                total = sum(it.amount_cents for it in items)
+                self.total.setText(f"{len(items)} Treffer · Summe {format_eur(total)}")
+            else:
+                self.total.setText(
+                    f"Summe: {format_eur(self.ctx.expenses.total_for_month(self._year, self._month))}")
 
         # Sorting must be off while filling, or inserted rows reshuffle mid-loop.
         self.table.setSortingEnabled(False)
@@ -599,6 +647,11 @@ class HaushaltsbuchView(BaseView):
         # user switches to them (currentChanged), avoiding three DB query sets
         # and three full table rebuilds on every data change.
         self._refresh_current_tab()
+
+    def show_expenses_filter(self, year: int, month: int, category: str | None) -> None:
+        """Chart drilldown: open the expenses tab filtered to month (+ category)."""
+        self.tabs.setCurrentWidget(self.expenses_tab)
+        self.expenses_tab.apply_filter(year, month, category)
 
     def _refresh_current_tab(self) -> None:
         widget = self.tabs.currentWidget()

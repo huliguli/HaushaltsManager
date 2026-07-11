@@ -40,6 +40,9 @@ from ui import theme
 class AppContext(QObject):
     data_changed = pyqtSignal()
     theme_changed = pyqtSignal(str)
+    # Drilldown: a chart element was clicked; the main window switches to the
+    # Haushaltsbuch with (year, month, category) applied ("" = all categories).
+    drilldown_requested = pyqtSignal(int, int, str)
 
     def __init__(self, db: Database, config: Config) -> None:
         super().__init__()
@@ -78,6 +81,10 @@ class AppContext(QObject):
     def notify_changed(self) -> None:
         """Signal that data was mutated so open views can refresh."""
         self.data_changed.emit()
+
+    def request_drilldown(self, year: int, month: int, category: str = "") -> None:
+        """Jump to the Haushaltsbuch expenses filtered to (year, month[, category])."""
+        self.drilldown_requested.emit(year, month, category or "")
 
     # -- convenience aggregates --------------------------------------------
     def overview(self, year: int | None = None, month: int | None = None) -> BudgetOverview:

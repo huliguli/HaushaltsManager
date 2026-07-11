@@ -311,6 +311,105 @@ def export_workbook(
     return Path(path)
 
 
+def export_year_workbook(path: str | Path, *, overview, prev_overview=None) -> Path:
+    """Write the annual report (Jahresbericht) to ``path`` and return it.
+
+    Sheets: Jahresübersicht (totals + Sparquote, optionally with the previous
+    year and the delta), Monate (per-month income/expenses/balance) and
+    Monatsmatrix (category × month). ``overview``/``prev_overview`` are
+    :class:`modules.annual.YearOverview` instances; ``prev_overview`` may be
+    None or empty, then the comparison columns are omitted.
+    """
+    from modules import annual as _annual  # local import to avoid cycle
+
+    wb = Workbook()
+    today = dates.format_date(dates.today())
+    year = overview.year
+    has_prev = prev_overview is not None and prev_overview.has_data
+    covered_note = (f"Januar bis {dates.month_name(overview.months_covered)}"
+                    if overview.months_covered < 12 else "ganzes Jahr")
+
+    # --- Jahresübersicht ---
+    ws = wb.active
+    ws.title = "Jahresübersicht"
+    span = 4 if has_prev else 2
+    hr = _sheet_title(ws, f"HaushaltsManager – Jahresbericht {year}",
+                      f"{covered_note} · erstellt am {today}", span)
+    _widths(ws, [30, 18, 18, 18])
+    headers = ["Position", str(year)] + ([str(prev_overview.year), "Δ zum Vorjahr"] if has_prev else [])
+    _header(ws, headers, hr, right_cols=(1, 2, 3))
+    rows = [
+        ("Einnahmen", overview.income_cents,
+         prev_overview.income_cents if has_prev else None),
+        ("Fixkosten", overview.fixed_cents,
+         prev_overview.fixed_cents if has_prev else None),
+        ("Variable Ausgaben", overview.variable_cents,
+         prev_overview.variable_cents if has_prev else None),
+        ("Ausgaben gesamt", overview.expenses_cents,
+         prev_overview.expenses_cents if has_prev else None),
+        ("Saldo (gespart)", overview.remaining_cents,
+         prev_overview.remaining_cents if has_prev else None),
+    ]
+    r = hr + 1
+    for i, (label, cur, prev) in enumerate(rows):
+        z = i % 2 == 1
+        _cell(ws, r, 1, _safe_text(label), zebra=z)
+        _cell(ws, r, 2, _euros(cur), money=True, zebra=z)
+        if has_prev:
+            _cell(ws, r, 3, _euros(prev), money=True, zebra=z)
+            _cell(ws, r, 4, _euros(cur - prev), money=True, zebra=z)
+        r += 1
+    # Sparquote as a percent row (rate of a zero income stays empty).
+    z = len(rows) % 2 == 1
+    _cell(ws, r, 1, "Sparquote", zebra=z)
+    _cell(ws, r, 2, overview.savings_rate, pct=True, zebra=z)
+    if has_prev:
+        _cell(ws, r, 3, prev_overview.savings_rate, pct=True, zebra=z)
+        if overview.savings_rate is not None and prev_overview.savings_rate is not None:
+            _cell(ws, r, 4, overview.savings_rate - prev_overview.savings_rate,
+                  pct=True, zebra=z)
+
+    # --- Monate ---
+    ws = wb.create_sheet("Monate")
+    hr = _sheet_title(ws, f"Monate {year}", "Einnahmen, Ausgaben und Saldo je Monat", 5)
+    _widths(ws, [16, 16, 16, 18, 16])
+    _header(ws, ["Monat", "Einnahmen", "Fixkosten", "Variable Ausgaben", "Saldo"],
+            hr, right_cols=(1, 2, 3, 4))
+    r = hr + 1
+    for i, pt in enumerate(overview.points):
+        z = i % 2 == 1
+        _cell(ws, r, 1, dates.month_name(pt.month), zebra=z)
+        _cell(ws, r, 2, _euros(pt.income_cents), money=True, zebra=z)
+        _cell(ws, r, 3, _euros(pt.fixed_cents), money=True, zebra=z)
+        _cell(ws, r, 4, _euros(pt.variable_cents), money=True, zebra=z)
+        _cell(ws, r, 5, _euros(pt.remaining_cents), money=True, zebra=z)
+        r += 1
+    _totals(ws, r, 5, "Summe Saldo", overview.remaining_cents, 5)
+
+    # --- Monatsmatrix (Kategorie × Monat) ---
+    categories, per_month = _annual.category_matrix(overview)
+    ws = wb.create_sheet("Monatsmatrix")
+    hr = _sheet_title(ws, f"Ausgaben-Matrix {year}",
+                      "Variable Ausgaben je Kategorie und Monat", 14)
+    _widths(ws, [24] + [11] * 12 + [13])
+    month_heads = [dates.month_name(m)[:3] for m in range(1, 13)]
+    _header(ws, ["Kategorie"] + month_heads + ["Summe"], hr,
+            right_cols=tuple(range(1, 14)))
+    r = hr + 1
+    for i, cat in enumerate(categories):
+        z = i % 2 == 1
+        _cell(ws, r, 1, _safe_text(cat), zebra=z)
+        for m in range(12):
+            _cell(ws, r, 2 + m, _euros(per_month[cat][m]), money=True, zebra=z)
+        _cell(ws, r, 14, _euros(sum(per_month[cat])), money=True, zebra=z)
+        r += 1
+    _totals(ws, r, 14, "Summe", overview.variable_cents, 14)
+
+    Path(path).parent.mkdir(parents=True, exist_ok=True)
+    wb.save(path)
+    return Path(path)
+
+
 def _write_amortisation_plans(ws, credits) -> None:
     """Best-effort amortisation tables for credits that have enough figures."""
     hr = _sheet_title(ws, "Tilgungspläne",

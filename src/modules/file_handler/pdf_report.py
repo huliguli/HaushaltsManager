@@ -101,7 +101,8 @@ def _money_table(rows: list[tuple[str, str]], styles, col_widths=None) -> Table:
     return table
 
 
-def _data_table(header: list[str], rows: list[list[str]], styles, col_widths) -> Table:
+def _data_table(header: list[str], rows: list[list[str]], styles, col_widths,
+                right_cols: tuple[int, ...] | None = None) -> Table:
     data = [header] + rows
     table = Table(data, colWidths=col_widths, repeatRows=1)
     style = [
@@ -114,10 +115,90 @@ def _data_table(header: list[str], rows: list[list[str]], styles, col_widths) ->
         ("LEFTPADDING", (0, 0), (-1, -1), 6),
         ("TEXTCOLOR", (0, 1), (-1, -1), _NAVY),
     ]
-    # Right-align the last (amount) column.
-    style.append(("ALIGN", (len(header) - 1, 0), (-1, -1), "RIGHT"))
+    # Right-align the amount columns (default: the last one).
+    for col in (right_cols if right_cols is not None else (len(header) - 1,)):
+        style.append(("ALIGN", (col, 0), (col, -1), "RIGHT"))
     table.setStyle(TableStyle(style))
     return table
+
+
+def _pct(rate: float | None) -> str:
+    """German percent label for a savings rate ('–' without income)."""
+    if rate is None:
+        return "–"
+    return f"{rate * 100:.1f} %".replace(".", ",")
+
+
+def generate_year_report(path: str | Path, *, overview, prev_overview=None) -> Path:
+    """Build the annual PDF report (Jahresbericht) and return its path.
+
+    ``overview``/``prev_overview`` are :class:`modules.annual.YearOverview`
+    instances; with a non-empty previous year every summary row carries the
+    year-over-year delta.
+    """
+    styles = _styles()
+    year = overview.year
+    doc = SimpleDocTemplate(
+        str(path), pagesize=A4,
+        topMargin=18 * mm, bottomMargin=16 * mm, leftMargin=18 * mm, rightMargin=18 * mm,
+        title=f"Jahresbericht {year}",
+    )
+    has_prev = prev_overview is not None and prev_overview.has_data
+    story = []
+
+    story.append(Paragraph("HaushaltsManager", styles["HMMuted"]))
+    story.append(Paragraph(f"Jahresbericht {year}", styles["HMTitle"]))
+    covered = (f"Januar bis {_MONTHS_DE[overview.months_covered - 1]} {year}"
+               if 0 < overview.months_covered < 12 else f"Kalenderjahr {year}")
+    story.append(Paragraph(
+        f"{covered} · erstellt am {dates.format_date(dates.today())}", styles["HMMuted"]))
+    story.append(Spacer(1, 10 * mm))
+
+    # Summary incl. Sparquote, optionally with the previous year + delta.
+    story.append(Paragraph("Zusammenfassung", styles["HMSection"]))
+    summary = [
+        ("Einnahmen", overview.income_cents,
+         prev_overview.income_cents if has_prev else None),
+        ("Fixkosten", overview.fixed_cents,
+         prev_overview.fixed_cents if has_prev else None),
+        ("Variable Ausgaben", overview.variable_cents,
+         prev_overview.variable_cents if has_prev else None),
+        ("Saldo (gespart)", overview.remaining_cents,
+         prev_overview.remaining_cents if has_prev else None),
+    ]
+    if has_prev:
+        rows = [[label, format_eur(cur), format_eur(prev),
+                 format_eur(cur - prev, plus=True)] for label, cur, prev in summary]
+        rows.append(["Sparquote", _pct(overview.savings_rate),
+                     _pct(prev_overview.savings_rate), ""])
+        story.append(_data_table(
+            ["Position", str(year), str(prev_overview.year), "Δ zum Vorjahr"],
+            rows, styles, [60 * mm, 34 * mm, 34 * mm, 34 * mm], right_cols=(1, 2, 3)))
+    else:
+        rows = [(label, format_eur(cur)) for label, cur, _prev in summary]
+        rows.append(("Sparquote", _pct(overview.savings_rate)))
+        story.append(_money_table(rows, styles))
+    story.append(Spacer(1, 6 * mm))
+
+    # Year expense donut.
+    png = _donut_png(overview.by_category)
+    if png:
+        story.append(Paragraph("Ausgaben nach Kategorie", styles["HMSection"]))
+        story.append(Image(io.BytesIO(png), width=168 * mm, height=84 * mm))
+        story.append(Spacer(1, 4 * mm))
+
+    # Month-by-month table.
+    if overview.points:
+        story.append(Paragraph("Monate im Überblick", styles["HMSection"]))
+        rows = [[_MONTHS_DE[p.month - 1], format_eur(p.income_cents),
+                 format_eur(p.fixed_cents + p.variable_cents),
+                 format_eur(p.remaining_cents)] for p in overview.points]
+        story.append(_data_table(
+            ["Monat", "Einnahmen", "Ausgaben", "Saldo"], rows, styles,
+            [40 * mm, 40 * mm, 40 * mm, 40 * mm], right_cols=(1, 2, 3)))
+
+    doc.build(story)
+    return Path(path)
 
 
 def generate_monthly_report(

@@ -23,6 +23,12 @@ werden aus **derselben Codebasis** gebaut, sodass der Funktionsumfang identisch 
 - **Verlauf & Trends** – Einnahmen, Ausgaben und Saldo über 6/12/24 Monate als
   Liniendiagramm, Ausgaben-Kategorien im Zeitverlauf als gestapeltes Balkendiagramm
   und Durchschnitts-Kennzahlen. Speist sich aus den bereits erfassten Daten.
+- **Jahresübersicht** – ganze Kalenderjahre auf einen Blick: Einnahmen, Ausgaben,
+  Saldo und **Sparquote** mit Vorjahresvergleich (▲/▼) plus einer
+  Kategorie-Monats-Matrix; als **Excel-/PDF-Jahresbericht** exportierbar.
+- **Drilldown** – Diagramme sind klickbar: ein Klick auf ein Donut-Segment oder
+  eine Budget-Zeile im Dashboard bzw. auf einen Monat im Verlauf springt direkt
+  ins Haushaltsbuch mit gesetztem Monats- und Kategoriefilter.
 - **Haushaltsbuch** – Einnahmen, Fixkosten-Manager (Kategorien, Enddatum,
   „noch X Monate", Ampel-Farben, Filter) und variable Ausgaben mit Monatsnavigation,
   **monatsübergreifender Suche**, Kategoriefilter und klickbarer Spaltensortierung.
@@ -50,7 +56,8 @@ werden aus **derselben Codebasis** gebaut, sodass der Funktionsumfang identisch 
 - **Import/Export** – Kontoauszug-Import (CAMT/MT940/CSV/PDF) mit lernender
   Auto-Kategorisierung, Excel-Import mit Spaltenerkennung, PDF-Import mit
   korrigierbarer Vorschau sowie **Excel-Monatsüberblick und PDF-Monatsbericht –
-  für den aktuellen oder einen beliebigen vergangenen Monat** (per Monatsauswahl).
+  für den aktuellen oder einen beliebigen vergangenen Monat** (per Monatsauswahl)
+  und **Excel-/PDF-Jahresbericht** mit Vorjahresvergleich (per Jahresauswahl).
 - **Datensicherung** – automatische Backups (täglich beim Start sowie vor
   Kontoauszug-Import, Daten-Aktualisierung und Löschen, die letzten 10 werden
   aufbewahrt), manuelles Backup und Ein-Klick-Wiederherstellung in den
