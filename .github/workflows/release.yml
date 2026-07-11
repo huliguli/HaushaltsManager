@@ -1,18 +1,22 @@
 name: Build and Release
 
-# On a published release, build BOTH platforms from the same source (100% parity):
+# Triggered by pushing a tag "v*": build BOTH platforms from the same source
+# (100% parity), then publish the GitHub release ATOMICALLY:
 #   * macOS   -> ad-hoc-signed HaushaltsManager.app packed into a .dmg
 #   * Windows -> onedir app wrapped into a signed Inno Setup installer (.exe)
-# Each attaches its binary + a matching .sha256; the in-app updater downloads the
-# asset for the running platform, verifies the .sha256 and applies it.
 #
-# build-windows runs AFTER build-macos on purpose: it uploads its assets last, so
-# the Windows ".exe.sha256" stays the last .sha256 in the release. Older Windows
-# clients (<= 2.3.0) pick the last .sha256, so this keeps their auto-update working
-# even now that a macOS .dmg + .dmg.sha256 are attached to the same release.
+# The release is created as a DRAFT, all four assets are uploaded, and only
+# then is it flipped to published. Clients query releases/latest, which never
+# returns drafts — so no client can ever see a release without its installer.
+# (The old flow published first and let the build attach assets ~5 minutes
+# later; a client updating inside that window got a release without a matching
+# binary and a dead "install" button.)
+#
+# Release title/notes come from the ANNOTATED tag message: first line = title,
+# rest = markdown body (create with `git tag -a vX.Y.Z -m "Titel" -m "Notes…"`).
 on:
-  release:
-    types: [published]
+  push:
+    tags: ["v*"]
   workflow_dispatch:
 
 permissions:
@@ -25,13 +29,13 @@ jobs:
       - name: Repository auschecken
         uses: actions/checkout@v4
 
-      - name: Version prüfen (Release-Tag == version.json)
-        if: github.event_name == 'release'
+      - name: Version prüfen (Tag == version.json)
+        if: github.ref_type == 'tag'
         run: |
           ver=$(python3 -c "import json;print(json.load(open('version.json'))['version'])")
-          tag="${{ github.event.release.tag_name }}"; tag="${tag#v}"
+          tag="${GITHUB_REF_NAME#v}"
           if [ "$ver" != "$tag" ]; then
-            echo "version.json ($ver) passt nicht zum Release-Tag ($tag) - bitte version.json anheben."; exit 1
+            echo "version.json ($ver) passt nicht zum Tag ($tag) - bitte version.json anheben."; exit 1
           fi
           echo "Version ok: $ver"
 
@@ -82,16 +86,7 @@ jobs:
           shasum -a 256 dist/HaushaltsManager-macOS.dmg | awk '{print $1}' \
             | tr -d '\n' > dist/HaushaltsManager-macOS.dmg.sha256
 
-      - name: Release-Assets hochladen (macOS)
-        if: github.event_name == 'release'
-        uses: softprops/action-gh-release@v2
-        with:
-          files: |
-            dist/HaushaltsManager-macOS.dmg
-            dist/HaushaltsManager-macOS.dmg.sha256
-
-      - name: Build-Artefakt hochladen (macOS, manuelle Läufe)
-        if: github.event_name == 'workflow_dispatch'
+      - name: Build-Artefakt hochladen (macOS)
         uses: actions/upload-artifact@v4
         with:
           name: HaushaltsManager-macOS
@@ -100,7 +95,6 @@ jobs:
             dist/HaushaltsManager-macOS.dmg.sha256
 
   build-windows:
-    needs: build-macos
     runs-on: windows-latest
     steps:
       - name: Repository auschecken
@@ -109,14 +103,14 @@ jobs:
       # Guard against a forgotten version bump: the installed app reads its own
       # version from the bundled version.json, so if the release tag is newer than
       # version.json the updater would offer the same update forever (a loop).
-      - name: Version prüfen (Release-Tag == version.json)
-        if: github.event_name == 'release'
+      - name: Version prüfen (Tag == version.json)
+        if: github.ref_type == 'tag'
         shell: pwsh
         run: |
           $ver = (Get-Content version.json -Raw | ConvertFrom-Json).version
-          $tag = "${{ github.event.release.tag_name }}" -replace '^v', ''
+          $tag = "$env:GITHUB_REF_NAME" -replace '^v', ''
           if ($ver -ne $tag) {
-            Write-Error "version.json ($ver) passt nicht zum Release-Tag ($tag) - bitte version.json anheben."
+            Write-Error "version.json ($ver) passt nicht zum Tag ($tag) - bitte version.json anheben."
             exit 1
           }
           Write-Host "Version ok: $ver"
@@ -154,18 +148,18 @@ jobs:
           if (-not (Test-Path $env:HM_SHOT)) { Write-Error "Smoke-Screenshot fehlt - Build defekt"; exit 1 }
           Write-Host "Smoke ok"
 
-      # Release gate: a RELEASE build without the signing certificate would
-      # upload an UNSIGNED installer that every existing client rejects
-      # fail-closed (thumbprint pinning) - auto-update would silently die.
+      # Release gate: a TAG build without the signing certificate would ship an
+      # UNSIGNED installer that every existing client rejects fail-closed
+      # (thumbprint pinning) - auto-update would silently die.
       # Manual dispatch runs may still build unsigned artefacts for testing.
-      - name: Zertifikat vorbereiten (bei Release Pflicht)
+      - name: Zertifikat vorbereiten (bei Tag-Build Pflicht)
         shell: pwsh
         env:
           PFX_B64: ${{ secrets.CODESIGN_PFX_BASE64 }}
         run: |
           if ($env:PFX_B64) {
             [IO.File]::WriteAllBytes("cert.pfx", [Convert]::FromBase64String($env:PFX_B64))
-          } elseif ('${{ github.event_name }}' -eq 'release') {
+          } elseif ('${{ github.ref_type }}' -eq 'tag') {
             Write-Error "Secret CODESIGN_PFX_BASE64 fehlt - ein unsigniertes Release wuerde jedes Auto-Update dauerhaft stoppen. Abbruch."
             exit 1
           } else {
@@ -210,7 +204,7 @@ jobs:
       # the self-signed root, so 'UnknownError' (untrusted chain, hash intact)
       # is accepted - exactly like the app itself, which pins the thumbprint.
       - name: Signatur gegen Client-Pin verifizieren
-        if: github.event_name == 'release'
+        if: github.ref_type == 'tag'
         shell: pwsh
         run: |
           $src = Get-Content src/modules/updater/updater.py -Raw
@@ -235,19 +229,54 @@ jobs:
           (Get-FileHash dist\HaushaltsManager-Setup.exe -Algorithm SHA256).Hash.ToLower() |
             Set-Content -NoNewline dist\HaushaltsManager-Setup.exe.sha256
 
-      - name: Release-Assets hochladen
-        if: github.event_name == 'release'
-        uses: softprops/action-gh-release@v2
-        with:
-          files: |
-            dist/HaushaltsManager-Setup.exe
-            dist/HaushaltsManager-Setup.exe.sha256
-
-      - name: Build-Artefakt hochladen (manuelle Läufe)
-        if: github.event_name == 'workflow_dispatch'
+      - name: Build-Artefakt hochladen (Windows)
         uses: actions/upload-artifact@v4
         with:
           name: HaushaltsManager-Setup
           path: |
             dist/HaushaltsManager-Setup.exe
             dist/HaushaltsManager-Setup.exe.sha256
+
+  # Publishes ONLY after both platform builds succeeded, and only then makes
+  # the release visible. Upload order is deliberate: the Windows .exe.sha256
+  # goes last, so clients <= 2.3.0 (which pick the LAST .sha256 in the release)
+  # keep verifying the Windows installer correctly.
+  publish:
+    if: github.ref_type == 'tag'
+    needs: [build-macos, build-windows]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Repository auschecken
+        uses: actions/checkout@v4
+
+      - name: Artefakte herunterladen
+        uses: actions/download-artifact@v4
+        with:
+          merge-multiple: true
+          path: assets
+
+      - name: Release als Entwurf anlegen, Assets anhängen, dann veröffentlichen
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          TAG="$GITHUB_REF_NAME"
+          for f in HaushaltsManager-macOS.dmg HaushaltsManager-macOS.dmg.sha256 \
+                   HaushaltsManager-Setup.exe HaushaltsManager-Setup.exe.sha256; do
+            test -s "assets/$f" || { echo "Asset fehlt oder ist leer: $f"; exit 1; }
+          done
+          # Titel/Notes aus der annotierten Tag-Nachricht (Zeile 1 = Titel).
+          git fetch --force origin "+refs/tags/$TAG:refs/tags/$TAG" >/dev/null 2>&1 || true
+          TITLE=$(git tag -l --format='%(contents:subject)' "$TAG")
+          git tag -l --format='%(contents:body)' "$TAG" > notes.md
+          [ -n "$TITLE" ] || TITLE="$TAG"
+          [ -s notes.md ] || echo "Siehe README für die Neuerungen dieser Version." > notes.md
+          gh release create "$TAG" --draft --title "$TITLE" --notes-file notes.md
+          gh release upload "$TAG" \
+            assets/HaushaltsManager-macOS.dmg \
+            assets/HaushaltsManager-macOS.dmg.sha256 \
+            assets/HaushaltsManager-Setup.exe
+          gh release upload "$TAG" assets/HaushaltsManager-Setup.exe.sha256
+          # Erst jetzt sichtbar machen - Clients sehen NIE ein Release ohne Assets.
+          gh release edit "$TAG" --draft=false --latest
+          echo "Release $TAG veroeffentlicht (alle Assets angehaengt)."

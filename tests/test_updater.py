@@ -183,3 +183,65 @@ def test_macos_swap_script_is_wellformed(tmp_path):
         assert "HaushaltsManager.app" in text
     finally:
         os.unlink(path)
+
+
+# --- check_for_update: release without assets must not be offered --------------
+
+class _FakeResponse:
+    """Minimal context-manager stand-in for urllib's HTTP response."""
+
+    def __init__(self, payload: dict) -> None:
+        self._payload = payload
+        self.headers = {}
+
+    def read(self, *_a):
+        import json
+        return json.dumps(self._payload).encode("utf-8")
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_a):
+        return False
+
+
+def _serve(monkeypatch, payload: dict) -> None:
+    import urllib.request
+    monkeypatch.setattr(urllib.request, "urlopen",
+                        lambda req, timeout=0, context=None: _FakeResponse(payload))
+
+
+def test_check_skips_newer_release_without_platform_asset(monkeypatch):
+    # Regression: right after publishing, the CI build needs a few minutes to
+    # attach the installers. A newer release WITHOUT our platform's binary must
+    # be treated as "no update yet" (None), never offered with a dead install
+    # button ("keine passende Programmdatei").
+    _serve(monkeypatch, {"tag_name": "v99.0.0", "assets": [],
+                         "body": "x", "html_url": "https://github.com/x"})
+    assert updater.check_for_update("x/y", "1.0.0") is None
+    # Same when only the OTHER platform's asset is up yet.
+    import sys
+    other = ".exe" if sys.platform == "darwin" else ".dmg"
+    _serve(monkeypatch, {"tag_name": "v99.0.0", "body": "", "html_url": "", "assets": [
+        {"name": f"HaushaltsManager{other}",
+         "browser_download_url": f"https://github.com/a{other}"}]})
+    assert updater.check_for_update("x/y", "1.0.0") is None
+
+
+def test_check_returns_info_once_asset_is_attached(monkeypatch):
+    _serve(monkeypatch, {"tag_name": "v99.0.0", "body": "Notes",
+                         "html_url": "https://github.com/x", "assets": [
+        {"name": "HaushaltsManager-Setup.exe",
+         "browser_download_url": "https://github.com/s.exe"},
+        {"name": "HaushaltsManager-Setup.exe.sha256",
+         "browser_download_url": "https://github.com/s.exe.sha256"},
+        {"name": "HaushaltsManager-macOS.dmg",
+         "browser_download_url": "https://github.com/m.dmg"},
+        {"name": "HaushaltsManager-macOS.dmg.sha256",
+         "browser_download_url": "https://github.com/m.dmg.sha256"},
+    ]})
+    info = updater.check_for_update("x/y", "1.0.0")
+    assert info is not None and info.version == "99.0.0"
+    assert info.asset_url and info.hash_url          # platform asset + checksum
+    # An up-to-date client still gets None.
+    assert updater.check_for_update("x/y", "99.0.0") is None

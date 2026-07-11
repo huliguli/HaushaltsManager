@@ -156,6 +156,14 @@ def check_for_update(repo: str, current_version: str) -> UpdateInfo | None:
 
     want_ext = ".dmg" if sys.platform == "darwin" else ".exe"
     asset_url, hash_url = _select_asset_and_checksum(data.get("assets", []), want_ext)
+    if not asset_url:
+        # A newer release without our platform's binary is a release that is
+        # still being provisioned (the CI build attaches the installers a few
+        # minutes after publishing). Offering it would only produce a dead
+        # "install" button — treat it as "no update yet" and check again later.
+        _log.info("Update %s übersprungen: noch kein %s-Asset im Release "
+                  "(Build läuft vermutlich noch).", tag, want_ext)
+        return None
 
     return UpdateInfo(
         version=tag.lstrip("vV"),

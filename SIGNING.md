@@ -42,8 +42,16 @@ diesen und berechnet **danach** die Prüfsumme:
 
 ```
 onedir-Build → inneres exe signieren → Installer (Inno Setup) → Installer signieren
-            → SHA-256 (über die signierte Setup.exe) → Upload (Setup.exe + .sha256)
+            → SHA-256 (über die signierte Setup.exe) → Artefakt
 ```
+
+Ausgelöst wird der Workflow durch das Pushen eines **annotierten Tags** `vX.Y.Z`
+(erste Zeile der Tag-Nachricht = Release-Titel, Rest = Notes). Ein eigener
+`publish`-Job legt das Release als **Entwurf** an, hängt alle vier Dateien an
+(macOS-`.dmg` + `.sha256`, Setup.exe + `.sha256` — die `.exe.sha256` bewusst als
+letztes, für Alt-Clients ≤ 2.3.0) und **veröffentlicht erst danach**. So existiert
+nie ein sichtbares Release ohne Programmdateien (die Update-Prüfung alter Clients
+würde sonst in der Bauphase ein leeres Release anbieten).
 
 Benötigte **GitHub-Actions-Secrets** (Repo-Settings → Secrets and variables → Actions):
 

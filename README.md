@@ -170,10 +170,13 @@ passende Datei herunter, **verifiziert die Prüfsumme** und wendet sie an:
 Ohne Internet startet die App normal weiter. Manuelle Prüfung unter
 **Einstellungen → Updates**.
 
-Ein neues Release wird über einen Git-Tag/Release angestoßen; der
-GitHub-Actions-Workflow [`release.yml`](.github/workflows/release.yml) baut **beide
-Plattformen aus derselben Quelle** (100% Parität): macOS (`.dmg`) und Windows
-(signierter `.exe`-Installer), je mit `.sha256`.
+Ein neues Release wird über einen **annotierten Git-Tag** (`git tag -a vX.Y.Z`,
+erste Zeile = Titel, Rest = Änderungshinweise) angestoßen; der GitHub-Actions-Workflow
+[`release.yml`](.github/workflows/release.yml) baut **beide Plattformen aus derselben
+Quelle** (100% Parität): macOS (`.dmg`) und Windows (signierter `.exe`-Installer),
+je mit `.sha256`. Das Release entsteht als **Entwurf und wird erst veröffentlicht,
+wenn alle vier Dateien angehängt sind** — die Update-Prüfung kann also nie ein
+Release ohne passende Programmdatei sehen.
 
 ## Projektstruktur
 
