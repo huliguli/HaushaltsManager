@@ -13,6 +13,9 @@ from modules.models import (
     FixedCost,
     IncomeSource,
     MonthlySummary,
+    Pot,
+    PotMovement,
+    SavingsAccount,
     SavingsGoal,
     VariableExpense,
     VariableIncome,
@@ -536,6 +539,106 @@ class SubscriptionIgnoreRepository:
 
     def clear(self) -> None:
         self.db.execute("DELETE FROM subscription_ignores")
+
+
+class SavingsAccountRepository:
+    """Real savings accounts whose balances the pots partition."""
+
+    def __init__(self, db: Database) -> None:
+        self.db = db
+
+    def list(self) -> list[SavingsAccount]:
+        rows = self.db.query("SELECT * FROM savings_accounts ORDER BY id")
+        return [SavingsAccount.from_row(r) for r in rows]
+
+    def get(self, row_id: int) -> SavingsAccount | None:
+        row = self.db.query_one(
+            "SELECT * FROM savings_accounts WHERE id = ?", (row_id,))
+        return SavingsAccount.from_row(row) if row else None
+
+    def add(self, item: SavingsAccount) -> int:
+        return self.db.insert("savings_accounts", item.to_params())
+
+    def update(self, item: SavingsAccount) -> None:
+        if item.id is None:
+            raise ValueError("SavingsAccount ohne id kann nicht aktualisiert werden.")
+        self.db.update("savings_accounts", item.id, item.to_params())
+
+    def delete(self, row_id: int) -> None:
+        # ON DELETE CASCADE removes the account's pots and their movements.
+        self.db.delete("savings_accounts", row_id)
+
+
+class PotRepository:
+    """Virtual partitions ("Töpfe") of savings accounts."""
+
+    def __init__(self, db: Database) -> None:
+        self.db = db
+
+    def list(self) -> list[Pot]:
+        rows = self.db.query("SELECT * FROM pots ORDER BY account_id, id")
+        return [Pot.from_row(r) for r in rows]
+
+    def list_for_account(self, account_id: int) -> list[Pot]:
+        rows = self.db.query(
+            "SELECT * FROM pots WHERE account_id = ? ORDER BY id", (account_id,))
+        return [Pot.from_row(r) for r in rows]
+
+    def get(self, row_id: int) -> Pot | None:
+        row = self.db.query_one("SELECT * FROM pots WHERE id = ?", (row_id,))
+        return Pot.from_row(row) if row else None
+
+    def add(self, item: Pot) -> int:
+        return self.db.insert("pots", item.to_params())
+
+    def update(self, item: Pot) -> None:
+        if item.id is None:
+            raise ValueError("Pot ohne id kann nicht aktualisiert werden.")
+        self.db.update("pots", item.id, item.to_params())
+
+    def delete(self, row_id: int) -> None:
+        # ON DELETE CASCADE removes the pot's movements.
+        self.db.delete("pots", row_id)
+
+
+class PotMovementRepository:
+    """Explicit pot bookings (signed cents); transfers are two rows at once."""
+
+    def __init__(self, db: Database) -> None:
+        self.db = db
+
+    def list_for_pot(self, pot_id: int, limit: int = 200) -> list[PotMovement]:
+        rows = self.db.query(
+            "SELECT * FROM pot_movements WHERE pot_id = ? "
+            "ORDER BY date DESC, id DESC LIMIT ?", (pot_id, limit))
+        return [PotMovement.from_row(r) for r in rows]
+
+    def add(self, item: PotMovement) -> int:
+        return self.db.insert("pot_movements", item.to_params())
+
+    def delete(self, row_id: int) -> None:
+        self.db.delete("pot_movements", row_id)
+
+    def sums_by_pot(self) -> dict[int, int]:
+        """Map pot_id -> signed movement sum (pots without movements missing)."""
+        rows = self.db.query(
+            "SELECT pot_id, COALESCE(SUM(amount_cents), 0) AS total "
+            "FROM pot_movements GROUP BY pot_id")
+        return {int(r["pot_id"]): int(r["total"]) for r in rows}
+
+    def transfer(self, from_pot_id: int, to_pot_id: int, amount_cents: int,
+                 date_iso: str, note: str = "") -> None:
+        """Move money between two pots as ONE commit (never a half transfer)."""
+        amount = abs(int(amount_cents))
+        if amount == 0 or from_pot_id == to_pot_id:
+            return
+        self.db.conn.execute(
+            "INSERT INTO pot_movements (pot_id, date, amount_cents, note) "
+            "VALUES (?, ?, ?, ?)", (from_pot_id, date_iso, -amount, note or None))
+        self.db.conn.execute(
+            "INSERT INTO pot_movements (pot_id, date, amount_cents, note) "
+            "VALUES (?, ?, ?, ?)", (to_pot_id, date_iso, amount, note or None))
+        self.db.conn.commit()
 
 
 class MonthlySummaryRepository:

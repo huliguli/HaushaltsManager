@@ -144,10 +144,13 @@ class SavingsGoalsManageDialog(QDialog):
         self._reload()
 
     def _reload(self) -> None:
+        from modules import pots as pots_mod
         goals = self.ctx.goals.list()
+        # Goals linked to a Topf show the pot's real balance as their state.
+        overrides = pots_mod.goal_saved_overrides(self.ctx.pots, self.ctx.pot_moves)
         self.table.setRowCount(len(goals))
         for r, g in enumerate(goals):
-            p = savings_goals.compute(g)
+            p = savings_goals.compute(g, saved_override=overrides.get(g.id))
             name = QTableWidgetItem(g.name)
             name.setFlags(name.flags() & ~Qt.ItemFlag.ItemIsEditable)
             name.setData(_ROLE_ID, g.id)

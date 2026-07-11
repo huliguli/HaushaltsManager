@@ -29,9 +29,14 @@ class GoalProgress:
     reached: bool
 
 
-def compute(goal, today: date | None = None) -> GoalProgress:
+def compute(goal, today: date | None = None,
+            saved_override: int | None = None) -> GoalProgress:
     """Scheduled progress of a goal. Robust against thin data: a goal without
-    a parseable start date simply starts counting today."""
+    a parseable start date simply starts counting today.
+
+    ``saved_override`` replaces the schedule estimate with a real balance —
+    used when a Topf is linked to the goal (the pot is the source of truth).
+    """
     today = today or date.today()
     start = dates.parse_date(goal.start_date) if goal.start_date else None
     if start is None:
@@ -44,7 +49,10 @@ def compute(goal, today: date | None = None) -> GoalProgress:
     elapsed = (today.year - start.year) * 12 + (today.month - start.month) + 1
     elapsed = max(0, elapsed)
 
-    saved = max(0, monthly * elapsed + int(goal.manual_cents or 0))
+    if saved_override is not None:
+        saved = max(0, int(saved_override))
+    else:
+        saved = max(0, monthly * elapsed + int(goal.manual_cents or 0))
     remaining = max(0, target - saved)
     reached = target > 0 and saved >= target
     ratio = min(1.0, saved / target) if target else 0.0

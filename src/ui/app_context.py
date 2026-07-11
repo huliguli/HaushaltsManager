@@ -26,6 +26,9 @@ from modules.db_handler.repositories import (
     ImportRuleRepository,
     IncomeRepository,
     MonthlySummaryRepository,
+    PotMovementRepository,
+    PotRepository,
+    SavingsAccountRepository,
     SavingsGoalRepository,
     SettingsRepository,
     SubscriptionIgnoreRepository,
@@ -43,6 +46,8 @@ class AppContext(QObject):
     # Drilldown: a chart element was clicked; the main window switches to the
     # Haushaltsbuch with (year, month, category) applied ("" = all categories).
     drilldown_requested = pyqtSignal(int, int, str)
+    # "Verwalten" on the dashboard Töpfe card: jump to Haushaltsbuch → Töpfe.
+    pots_requested = pyqtSignal()
 
     def __init__(self, db: Database, config: Config) -> None:
         super().__init__()
@@ -63,6 +68,9 @@ class AppContext(QObject):
         self.bank_profiles = BankProfileRepository(db)
         self.goals = SavingsGoalRepository(db)
         self.sub_ignores = SubscriptionIgnoreRepository(db)
+        self.savings_accounts = SavingsAccountRepository(db)
+        self.pots = PotRepository(db)
+        self.pot_moves = PotMovementRepository(db)
 
     # -- theme --------------------------------------------------------------
     @property
@@ -85,6 +93,10 @@ class AppContext(QObject):
     def request_drilldown(self, year: int, month: int, category: str = "") -> None:
         """Jump to the Haushaltsbuch expenses filtered to (year, month[, category])."""
         self.drilldown_requested.emit(year, month, category or "")
+
+    def request_pots(self) -> None:
+        """Jump to the Haushaltsbuch Töpfe tab."""
+        self.pots_requested.emit()
 
     # -- convenience aggregates --------------------------------------------
     def overview(self, year: int | None = None, month: int | None = None) -> BudgetOverview:

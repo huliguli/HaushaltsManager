@@ -97,6 +97,10 @@ def test_cumulative_pre_1_4_upgrade_preserves_all_data(tmp_path):
     # v5 additions (savings goals + Abo-Radar ignores) arrive the same way.
     assert db.query_one("SELECT COUNT(*) AS n FROM savings_goals")["n"] == 0
     assert db.query_one("SELECT COUNT(*) AS n FROM subscription_ignores")["n"] == 0
+    # v6 additions (Töpfe: accounts, pots, movements) likewise.
+    assert db.query_one("SELECT COUNT(*) AS n FROM savings_accounts")["n"] == 0
+    assert db.query_one("SELECT COUNT(*) AS n FROM pots")["n"] == 0
+    assert db.query_one("SELECT COUNT(*) AS n FROM pot_movements")["n"] == 0
 
     # 5) every pre-existing amount survived untouched.
     assert IncomeRepository(db).total_active() == 210_000

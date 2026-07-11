@@ -324,6 +324,91 @@ class SavingsGoal:
 
 
 @dataclass
+class SavingsAccount:
+    """A real savings account whose balance the pots partition virtually."""
+
+    name: str
+    balance_cents: int = 0             # zuletzt erfasster Kontostand
+    balance_date: str | None = None    # ISO; wann erfasst
+    note: str = ""
+    id: int | None = None
+
+    @staticmethod
+    def from_row(row) -> "SavingsAccount":
+        return SavingsAccount(
+            id=row["id"], name=row["name"], balance_cents=row["balance_cents"],
+            balance_date=row["balance_date"], note=row["note"] or "")
+
+    def to_params(self) -> dict:
+        return {
+            "name": self.name,
+            "balance_cents": int(self.balance_cents),
+            "balance_date": self.balance_date or dates.to_iso(dates.today()),
+            "note": self.note or None,
+        }
+
+
+@dataclass
+class Pot:
+    """A virtual partition ("Topf") of a savings account.
+
+    The balance is derived, never stored: monthly rate × months since
+    ``rate_start`` (mirrors the user's real standing order) plus the sum of
+    explicit movements — see :mod:`modules.pots`.
+    """
+
+    account_id: int
+    name: str
+    monthly_cents: int = 0             # Rate; 0 = wächst nur durch Buchungen
+    rate_start: str | None = None      # ISO; erster Monat, der zählt
+    goal_id: int | None = None         # optional verknüpftes Sparziel
+    note: str = ""
+    id: int | None = None
+
+    @staticmethod
+    def from_row(row) -> "Pot":
+        return Pot(
+            id=row["id"], account_id=row["account_id"], name=row["name"],
+            monthly_cents=row["monthly_cents"], rate_start=row["rate_start"],
+            goal_id=row["goal_id"], note=row["note"] or "")
+
+    def to_params(self) -> dict:
+        return {
+            "account_id": int(self.account_id),
+            "name": self.name,
+            "monthly_cents": max(0, int(self.monthly_cents)),
+            "rate_start": self.rate_start,
+            "goal_id": self.goal_id,
+            "note": self.note or None,
+        }
+
+
+@dataclass
+class PotMovement:
+    """One explicit pot booking: + Einzahlung, − Entnahme (signed cents)."""
+
+    pot_id: int
+    date: str                          # ISO YYYY-MM-DD
+    amount_cents: int
+    note: str = ""
+    id: int | None = None
+
+    @staticmethod
+    def from_row(row) -> "PotMovement":
+        return PotMovement(
+            id=row["id"], pot_id=row["pot_id"], date=row["date"],
+            amount_cents=row["amount_cents"], note=row["note"] or "")
+
+    def to_params(self) -> dict:
+        return {
+            "pot_id": int(self.pot_id),
+            "date": self.date,
+            "amount_cents": int(self.amount_cents),
+            "note": self.note or None,
+        }
+
+
+@dataclass
 class MonthlySummary:
     year: int
     month: int

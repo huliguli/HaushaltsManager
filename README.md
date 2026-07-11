@@ -43,6 +43,12 @@ werden aus **derselben Codebasis** gebaut, sodass der Funktionsumfang identisch 
   der Stand wächst automatisch mit (plus manueller Korrektur, z. B. Startguthaben),
   das Dashboard zeigt Fortschrittsbalken samt „erreicht ≈ Monat Jahr"-Prognose.
   Ein berechneter Sparplan lässt sich direkt als Sparziel merken.
+- **Töpfe** – unterteilen das Sparkonto virtuell: Sie zeigen, was in der einen
+  Summe bei der Bank eigentlich steckt (Urlaub, Notgroschen, Auto …). Jeder Topf
+  wächst optional über eine **Monatsrate** (passend zu einem echten Dauerauftrag)
+  plus Ein-/Auszahlungen mit Historie und **Umbuchen** zwischen Töpfen. Der
+  erfasste Kontostand wird gegen die Töpfe-Summe geprüft („nicht verteilt" bzw.
+  Warnung bei Überverteilung), und ein Topf kann ein **Sparziel** speisen.
 - **Abo-Radar** – erkennt wiederkehrende Zahlungen (monatlich, quartalsweise,
   jährlich) automatisch in den Buchungen – rein lokal, ohne Internet – samt
   geschätzter Jahreskosten und **Preiserhöhungs-Warnung**. Gefundene Abos lassen

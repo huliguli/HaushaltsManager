@@ -17,7 +17,7 @@ from modules.logging_setup import get_logger
 
 _log = get_logger("db")
 
-CURRENT_SCHEMA_VERSION = 5
+CURRENT_SCHEMA_VERSION = 6
 
 
 class DatabaseCorruptError(RuntimeError):
@@ -50,6 +50,11 @@ WIPE_TABLES = (
     "bank_profiles",
     "savings_goals",
     "subscription_ignores",
+    # v6: pots before accounts is irrelevant for DELETE order (no FK enforcement
+    # issue thanks to ON DELETE CASCADE), but keep children first for clarity.
+    "pot_movements",
+    "pots",
+    "savings_accounts",
 )
 
 # Schema v2 (v1.6.0): the expense taxonomy was refined into finer, better-named
@@ -209,6 +214,7 @@ class Database:
         self._migrate_v3()
         self._migrate_v4()
         self._migrate_v5()
+        self._migrate_v6()
 
     def _migrate_v3(self) -> None:
         """Record schema v3 on an existing database (run once).
@@ -251,6 +257,19 @@ class Database:
         if row is None or row["version"] >= 5:
             return
         self.conn.execute("UPDATE schema_version SET version = 5")
+        self.conn.commit()
+
+    def _migrate_v6(self) -> None:
+        """Record schema v6 on an existing database (run once).
+
+        The v6 additions (``savings_accounts``/``pots``/``pot_movements``) are
+        whole new tables created by ``schema.sql`` via ``CREATE ... IF NOT
+        EXISTS`` on every start — only the stored version needs bumping.
+        """
+        row = self.conn.execute("SELECT version FROM schema_version LIMIT 1").fetchone()
+        if row is None or row["version"] >= 6:
+            return
+        self.conn.execute("UPDATE schema_version SET version = 6")
         self.conn.commit()
 
     def wipe_financial_data(self) -> None:

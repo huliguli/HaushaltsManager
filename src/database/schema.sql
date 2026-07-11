@@ -185,6 +185,48 @@ CREATE TABLE IF NOT EXISTS subscription_ignores (
     UNIQUE (pattern)
 );
 
+-- --- Töpfe (schema v6): virtual partitions of real savings accounts --------
+-- A savings account holds one anonymous lump sum at the bank; pots make its
+-- composition visible ("1.000 € = 400 € Urlaub + 250 € Auto + …"). A pot
+-- grows by an optional monthly rate (mirroring the user's real standing
+-- order) plus explicit movements; the account's recorded balance is compared
+-- against the pots' sum ("nicht verteilt"). All additive CREATE IF NOT EXISTS.
+CREATE TABLE IF NOT EXISTS savings_accounts (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    name          TEXT    NOT NULL,
+    balance_cents INTEGER NOT NULL DEFAULT 0,    -- zuletzt erfasster Kontostand
+    balance_date  TEXT,                          -- ISO; wann erfasst
+    note          TEXT,
+    created_at    TEXT    NOT NULL DEFAULT (datetime('now')),
+    updated_at    TEXT    NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS pots (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    account_id    INTEGER NOT NULL,
+    name          TEXT    NOT NULL,
+    monthly_cents INTEGER NOT NULL DEFAULT 0,    -- Rate (Dauerauftrags-Anteil), 0 = keine
+    rate_start    TEXT,                          -- ISO; Rate zählt ab diesem Monat
+    goal_id       INTEGER,                       -- optional verknüpftes Sparziel
+    note          TEXT,
+    created_at    TEXT    NOT NULL DEFAULT (datetime('now')),
+    updated_at    TEXT    NOT NULL DEFAULT (datetime('now')),
+    FOREIGN KEY (account_id) REFERENCES savings_accounts(id) ON DELETE CASCADE,
+    FOREIGN KEY (goal_id) REFERENCES savings_goals(id) ON DELETE SET NULL
+);
+
+-- Signed movements: + Einzahlung, − Entnahme. Transfers between pots are two
+-- rows committed together. The pot balance = rate part + SUM(amount_cents).
+CREATE TABLE IF NOT EXISTS pot_movements (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    pot_id       INTEGER NOT NULL,
+    date         TEXT    NOT NULL,               -- ISO YYYY-MM-DD
+    amount_cents INTEGER NOT NULL,
+    note         TEXT,
+    created_at   TEXT    NOT NULL DEFAULT (datetime('now')),
+    FOREIGN KEY (pot_id) REFERENCES pots(id) ON DELETE CASCADE
+);
+
 -- --- Indexes ---------------------------------------------------------------
 CREATE INDEX IF NOT EXISTS idx_var_date     ON variable_expenses(date);
 CREATE INDEX IF NOT EXISTS idx_varincome_date ON variable_income(date);
@@ -197,3 +239,5 @@ CREATE INDEX IF NOT EXISTS idx_fixed_active ON fixed_costs(active);
 CREATE INDEX IF NOT EXISTS idx_credit_status ON credits(status);
 CREATE INDEX IF NOT EXISTS idx_import_log_hash    ON import_log(tx_hash);
 CREATE INDEX IF NOT EXISTS idx_import_rules_pattern ON import_rules(pattern);
+CREATE INDEX IF NOT EXISTS idx_pots_account ON pots(account_id);
+CREATE INDEX IF NOT EXISTS idx_pot_moves_pot ON pot_movements(pot_id);

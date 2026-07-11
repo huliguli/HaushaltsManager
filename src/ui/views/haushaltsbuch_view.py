@@ -26,11 +26,12 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from modules import dates
+from modules import dates, pots as pots_mod
 from modules.models import (
     EXPENSE_CATEGORIES,
     FIXED_CATEGORIES,
     INCOME_TYPE_LABELS,
+    PotMovement,
 )
 from modules.money import format_eur
 from ui import theme
@@ -623,6 +624,282 @@ class _ExpensesTab(QWidget):
             toast.show_undo(self, text, undo)
 
 
+# --- Töpfe tab ---------------------------------------------------------------
+class _PotsTab(QWidget):
+    """Virtual partitions of the savings accounts ("was steckt in der Summe?").
+
+    One table shows accounts as bold group rows (recorded balance, allocated,
+    unallocated) with their pots indented beneath. All balances are derived by
+    the Qt-free :mod:`modules.pots`. Row identity: _ROLE_ID = ("acc"|"pot", id).
+    """
+
+    def __init__(self, ctx) -> None:
+        super().__init__()
+        self.ctx = ctx
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(2, 14, 2, 2)
+        layout.setSpacing(12)
+
+        intro = QLabel(
+            "Töpfe unterteilen dein Sparkonto virtuell: Sie zeigen, was in der "
+            "einen Summe bei der Bank eigentlich steckt. Tipp: Richte je Topf "
+            "einen Dauerauftrag über die Monatsrate ein – dann wächst der Topf "
+            "hier automatisch synchron zur Bank.")
+        intro.setObjectName("Faint")
+        intro.setWordWrap(True)
+        layout.addWidget(intro)
+
+        # Summary on its own row — the button bar below would clip it on
+        # smaller windows otherwise.
+        self.total = QLabel()
+        self.total.setObjectName("H2")
+        layout.addWidget(self.total)
+
+        bar = QHBoxLayout()
+        bar.addStretch(1)
+        book = QPushButton("Ein-/Auszahlung")
+        book.setObjectName("Ghost")
+        transfer = QPushButton("Umbuchen")
+        transfer.setObjectName("Ghost")
+        edit = QPushButton("Bearbeiten")
+        edit.setObjectName("Ghost")
+        delete = QPushButton("Löschen")
+        delete.setObjectName("Danger")
+        add_account = QPushButton("+ Sparkonto")
+        add_account.setObjectName("Ghost")
+        add_pot = QPushButton("+ Topf")
+        add_pot.setObjectName("Primary")
+        for btn in (book, transfer, edit, delete, add_account, add_pot):
+            bar.addWidget(btn)
+        layout.addLayout(bar)
+
+        self.table = _make_table(
+            ["Bezeichnung", "Stand", "Monatsrate", "Bewegungen", "Hinweis"])
+        self.table.doubleClicked.connect(lambda: self._edit())
+        table_shortcuts(self.table, self._edit, self._delete)
+        self._panel = TablePanel(
+            self.table, "Noch keine Töpfe eingerichtet.",
+            "Lege zuerst dein Sparkonto mit dem aktuellen Kontostand an und "
+            "teile die Summe dann in Töpfe auf (z. B. Urlaub, Notgroschen, "
+            "Auto). Mit einer Monatsrate je Topf – passend zu einem "
+            "Dauerauftrag bei deiner Bank – bleibt alles von allein aktuell.",
+            action_text="+ Sparkonto anlegen", on_action=self._add_account)
+        layout.addWidget(self._panel, 1)
+
+        add_account.clicked.connect(self._add_account)
+        add_pot.clicked.connect(self._add_pot)
+        book.clicked.connect(self._movement)
+        transfer.clicked.connect(self._transfer)
+        edit.clicked.connect(self._edit)
+        delete.clicked.connect(self._delete)
+
+    # -- rendering ------------------------------------------------------------
+    def refresh(self) -> None:
+        colors = self.ctx.colors
+        overview = pots_mod.build_overview(
+            self.ctx.savings_accounts, self.ctx.pots, self.ctx.pot_moves)
+        rows: list = []
+        for acc in overview:
+            rows.append(("acc", acc))
+            for state in acc.pots:
+                rows.append(("pot", state))
+        self.table.setRowCount(len(rows))
+        total_balance = sum(a.account.balance_cents for a in overview)
+        total_unallocated = sum(a.unallocated_cents for a in overview)
+
+        for r, (kind, item) in enumerate(rows):
+            if kind == "acc":
+                account = item.account
+                name = _text_item(account.name)
+                name.setData(_ROLE_ID, ("acc", account.id))
+                font = name.font()
+                font.setBold(True)
+                name.setFont(font)
+                self.table.setItem(r, 0, name)
+                stand = _money_item(account.balance_cents)
+                stand.setFont(font)
+                self.table.setItem(r, 1, stand)
+                self.table.setItem(r, 2, _text_item(""))
+                self.table.setItem(r, 3, _text_item(
+                    f"Stand vom {dates.format_date(account.balance_date) or '–'}"))
+                unallocated = item.unallocated_cents
+                if unallocated < 0:
+                    pill = Pill(f"{format_eur(-unallocated)} zu viel verteilt",
+                                theme.ampel_color("red", colors),
+                                theme.ampel_soft("red", colors))
+                elif unallocated > 0:
+                    pill = Pill(f"{format_eur(unallocated)} nicht verteilt",
+                                theme.ampel_color("amber", colors),
+                                theme.ampel_soft("amber", colors))
+                else:
+                    pill = Pill("voll verteilt",
+                                theme.ampel_color("green", colors),
+                                theme.ampel_soft("green", colors))
+                self.table.setCellWidget(r, 4, pill_cell(pill))
+            else:
+                pot = item.pot
+                name = _text_item(f"      {pot.name}")
+                name.setData(_ROLE_ID, ("pot", pot.id))
+                self.table.setItem(r, 0, name)
+                self.table.setItem(r, 1, _money_item(item.balance_cents))
+                self.table.setItem(r, 2, _text_item(
+                    format_eur(pot.monthly_cents) + " / Monat"
+                    if pot.monthly_cents else "–"))
+                moved = item.moved_cents
+                self.table.setItem(r, 3, _text_item(
+                    format_eur(moved, plus=True) if moved else "–"))
+                hints = []
+                if pot.goal_id is not None:
+                    goal = self.ctx.goals.get(pot.goal_id)
+                    if goal is not None:
+                        hints.append(f"Ziel: {goal.name}")
+                if pot.note:
+                    hints.append(pot.note)
+                self.table.setItem(r, 4, _text_item(" · ".join(hints) or "–"))
+
+        header = self.table.horizontalHeader()
+        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        for col in (1, 2, 3):
+            header.setSectionResizeMode(col, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(4, QHeaderView.ResizeMode.Fixed)
+        self.table.setColumnWidth(4, 230)
+        align_table_headers(self.table, right_cols=(1, 2, 3))
+        self._panel.update_state()
+        summary = f"Gesamt auf Sparkonten: {format_eur(total_balance)}"
+        if overview:
+            summary += f"  ·  nicht verteilt: {format_eur(total_unallocated)}"
+        self.total.setText(summary)
+
+    # -- selection ------------------------------------------------------------
+    def _selected(self) -> tuple[str, int] | None:
+        row = self.table.currentRow()
+        if row < 0:
+            return None
+        item = self.table.item(row, 0)
+        data = item.data(_ROLE_ID) if item else None
+        return tuple(data) if data else None
+
+    # -- actions --------------------------------------------------------------
+    def _add(self) -> None:
+        # Ctrl+N routes here: without an account it starts with the account.
+        if not self.ctx.savings_accounts.list():
+            self._add_account()
+        else:
+            self._add_pot()
+
+    def _add_account(self) -> None:
+        from ui.pot_dialogs import AccountDialog
+        dlg = AccountDialog(parent=self)
+        if dlg.exec():
+            self.ctx.savings_accounts.add(dlg.result_model)
+            self.ctx.notify_changed()
+
+    def _add_pot(self) -> None:
+        from ui.pot_dialogs import PotDialog
+        accounts = self.ctx.savings_accounts.list()
+        if not accounts:
+            QMessageBox.information(
+                self, "Erst das Sparkonto",
+                "Lege zuerst dein Sparkonto mit dem aktuellen Kontostand an – "
+                "die Töpfe verteilen dann diese Summe.")
+            return
+        dlg = PotDialog(accounts, self.ctx.goals.list(), parent=self)
+        if dlg.exec():
+            pot_id = self.ctx.pots.add(dlg.result_model)
+            if dlg.start_cents > 0:
+                self.ctx.pot_moves.add(PotMovement(
+                    pot_id=pot_id, date=dates.to_iso(dates.today()),
+                    amount_cents=dlg.start_cents, note="Startbestand"))
+            self.ctx.notify_changed()
+
+    def _movement(self) -> None:
+        from ui.pot_dialogs import MovementDialog
+        pot_list = self.ctx.pots.list()
+        if not pot_list:
+            QMessageBox.information(self, "Kein Topf",
+                                    "Lege zuerst einen Topf an.")
+            return
+        selected = self._selected()
+        preselect = selected[1] if selected and selected[0] == "pot" else None
+        dlg = MovementDialog(pot_list, preselect, parent=self)
+        if dlg.exec():
+            move_id = self.ctx.pot_moves.add(dlg.result_model)
+            self.ctx.notify_changed()
+
+            def undo() -> None:
+                self.ctx.pot_moves.delete(move_id)
+                self.ctx.notify_changed()
+            kind = "Einzahlung" if dlg.result_model.amount_cents > 0 else "Entnahme"
+            toast.show_undo(self, f"{kind} gebucht.", undo)
+
+    def _transfer(self) -> None:
+        from ui.pot_dialogs import TransferDialog
+        pot_list = self.ctx.pots.list()
+        if len(pot_list) < 2:
+            QMessageBox.information(self, "Umbuchen",
+                                    "Zum Umbuchen braucht es mindestens zwei Töpfe.")
+            return
+        dlg = TransferDialog(pot_list, parent=self)
+        if dlg.exec():
+            src, dst, amount, note = dlg.result
+            self.ctx.pot_moves.transfer(
+                src, dst, amount, dates.to_iso(dates.today()), note)
+            self.ctx.notify_changed()
+
+    def _edit(self) -> None:
+        selected = self._selected()
+        if selected is None:
+            return
+        kind, rid = selected
+        if kind == "acc":
+            account = self.ctx.savings_accounts.get(rid)
+            if account is None:
+                return
+            from ui.pot_dialogs import AccountDialog
+            dlg = AccountDialog(account, parent=self)
+            if dlg.exec():
+                self.ctx.savings_accounts.update(dlg.result_model)
+                self.ctx.notify_changed()
+        else:
+            pot = self.ctx.pots.get(rid)
+            if pot is None:
+                return
+            from ui.pot_dialogs import PotDialog
+            dlg = PotDialog(self.ctx.savings_accounts.list(),
+                            self.ctx.goals.list(), pot, parent=self)
+            if dlg.exec():
+                self.ctx.pots.update(dlg.result_model)
+                self.ctx.notify_changed()
+
+    def _delete(self) -> None:
+        selected = self._selected()
+        if selected is None:
+            return
+        kind, rid = selected
+        if kind == "acc":
+            account = self.ctx.savings_accounts.get(rid)
+            if account is None:
+                return
+            if QMessageBox.question(
+                    self, "Löschen",
+                    f"Sparkonto „{account.name}“ samt allen Töpfen und "
+                    f"Buchungen löschen?") != QMessageBox.StandardButton.Yes:
+                return
+            self.ctx.savings_accounts.delete(rid)
+            self.ctx.notify_changed()
+        else:
+            pot = self.ctx.pots.get(rid)
+            if pot is None:
+                return
+            if QMessageBox.question(
+                    self, "Löschen",
+                    f"Topf „{pot.name}“ samt Buchungen löschen?") \
+                    != QMessageBox.StandardButton.Yes:
+                return
+            self.ctx.pots.delete(rid)
+            self.ctx.notify_changed()
+
+
 class HaushaltsbuchView(BaseView):
     def __init__(self, ctx) -> None:
         super().__init__(ctx)
@@ -636,9 +913,11 @@ class HaushaltsbuchView(BaseView):
         self.income_tab = _IncomeTab(ctx)
         self.fixed_tab = _FixedTab(ctx)
         self.expenses_tab = _ExpensesTab(ctx)
+        self.pots_tab = _PotsTab(ctx)
         self.tabs.addTab(self.income_tab, "Einnahmen")
         self.tabs.addTab(self.fixed_tab, "Fixkosten")
         self.tabs.addTab(self.expenses_tab, "Variable Ausgaben")
+        self.tabs.addTab(self.pots_tab, "Töpfe")
         self.tabs.currentChanged.connect(self._refresh_current_tab)
         layout.addWidget(self.tabs, 1)
 
@@ -652,6 +931,11 @@ class HaushaltsbuchView(BaseView):
         """Chart drilldown: open the expenses tab filtered to month (+ category)."""
         self.tabs.setCurrentWidget(self.expenses_tab)
         self.expenses_tab.apply_filter(year, month, category)
+
+    def show_pots(self) -> None:
+        """Dashboard card link: open the Töpfe tab."""
+        self.tabs.setCurrentWidget(self.pots_tab)
+        self.pots_tab.refresh()
 
     def _refresh_current_tab(self) -> None:
         widget = self.tabs.currentWidget()

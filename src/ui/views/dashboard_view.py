@@ -25,7 +25,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from modules import dates, savings_goals
+from modules import dates, pots as pots_mod, savings_goals
 from modules.calculator import timeline
 from modules.money import format_eur, format_eur_short
 from ui import theme
@@ -118,6 +118,7 @@ class DashboardView(BaseView):
         if budget_panel is not None:
             self._body.addWidget(budget_panel)
         self._body.addWidget(self._goals_panel(c))
+        self._body.addWidget(self._pots_panel(c))
         self._body.addWidget(self._timeline_panel(ov, c))
         self._body.addStretch(1)
 
@@ -371,12 +372,14 @@ class DashboardView(BaseView):
             pl.addWidget(hint)
             return panel
 
+        # A goal linked to a Topf shows the pot's REAL balance as its state.
+        overrides = pots_mod.goal_saved_overrides(self.ctx.pots, self.ctx.pot_moves)
         for goal in goals:
-            pl.addWidget(self._goal_row(goal, c))
+            pl.addWidget(self._goal_row(goal, c, overrides.get(goal.id)))
         return panel
 
-    def _goal_row(self, goal, c) -> QWidget:
-        p = savings_goals.compute(goal)
+    def _goal_row(self, goal, c, saved_override: int | None = None) -> QWidget:
+        p = savings_goals.compute(goal, saved_override=saved_override)
         wrap = QWidget()
         box = QVBoxLayout(wrap)
         box.setContentsMargins(0, 0, 0, 0)
@@ -407,8 +410,11 @@ class DashboardView(BaseView):
             f"QProgressBar::chunk {{ background: {color}; border-radius: 4px; }}")
         box.addWidget(bar)
 
-        sub = QLabel(f"{format_eur(goal.monthly_cents)} / Monat · "
-                     f"{savings_goals.eta_label(p)}")
+        sub_text = (f"{format_eur(goal.monthly_cents)} / Monat · "
+                    f"{savings_goals.eta_label(p)}")
+        if saved_override is not None:
+            sub_text += " · Stand aus Topf"
+        sub = QLabel(sub_text)
         sub.setObjectName("Faint")
         box.addWidget(sub)
         return wrap
@@ -418,6 +424,78 @@ class DashboardView(BaseView):
         dlg.exec()
         if dlg.changed:
             self.ctx.notify_changed()
+
+    # -- Töpfe ---------------------------------------------------------------
+    def _pots_panel(self, c) -> QWidget:
+        """What the savings accounts' lump sums are made of (modules.pots)."""
+        overview = pots_mod.build_overview(
+            self.ctx.savings_accounts, self.ctx.pots, self.ctx.pot_moves)
+        panel = QFrame()
+        panel.setObjectName("Card")
+        pl = QVBoxLayout(panel)
+        pl.setContentsMargins(22, 20, 22, 20)
+        pl.setSpacing(8)
+
+        head = QHBoxLayout()
+        head.addWidget(self._panel_title("Töpfe"))
+        head.addStretch(1)
+        manage = QPushButton("Töpfe einrichten" if not overview else "Verwalten")
+        manage.setObjectName("Link")
+        manage.setCursor(Qt.CursorShape.PointingHandCursor)
+        manage.clicked.connect(self.ctx.request_pots)
+        head.addWidget(manage)
+        pl.addLayout(head)
+
+        if not overview:
+            hint = QLabel(
+                "Teile dein Sparkonto in Töpfe auf (Urlaub, Notgroschen, Auto …) "
+                "– dann siehst du, was in der einen Summe bei der Bank steckt.")
+            hint.setObjectName("Faint")
+            hint.setWordWrap(True)
+            pl.addWidget(hint)
+            return panel
+
+        for acc in overview:
+            row = QHBoxLayout()
+            name = QLabel(acc.account.name)
+            name.setStyleSheet(f"color: {c['text']}; font-weight: 700;")
+            value = QLabel(format_eur(acc.account.balance_cents))
+            value.setStyleSheet(f"color: {c['text']}; font-weight: 700;")
+            value.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+            row.addWidget(name)
+            row.addStretch(1)
+            row.addWidget(value)
+            pl.addLayout(row)
+            for state in acc.pots:
+                pot_row = QHBoxLayout()
+                pot_name = QLabel("    " + state.pot.name)
+                pot_name.setObjectName("Muted")
+                pot_value = QLabel(format_eur(state.balance_cents))
+                pot_value.setObjectName("Muted")
+                pot_value.setAlignment(
+                    Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+                pot_row.addWidget(pot_name)
+                pot_row.addStretch(1)
+                pot_row.addWidget(pot_value)
+                pl.addLayout(pot_row)
+            unallocated = acc.unallocated_cents
+            rest_row = QHBoxLayout()
+            if unallocated < 0:
+                rest_label, color = "    Zu viel verteilt", c["red"]
+            else:
+                rest_label = "    Nicht verteilt"
+                color = c["amber"] if unallocated > 0 else c["green"]
+            rest_name = QLabel(rest_label)
+            rest_name.setStyleSheet(f"color: {color};")
+            rest_value = QLabel(format_eur(abs(unallocated)))
+            rest_value.setStyleSheet(f"color: {color}; font-weight: 600;")
+            rest_value.setAlignment(
+                Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+            rest_row.addWidget(rest_name)
+            rest_row.addStretch(1)
+            rest_row.addWidget(rest_value)
+            pl.addLayout(rest_row)
+        return panel
 
     def _timeline_panel(self, ov, c) -> QWidget:
         panel = QFrame()
