@@ -80,9 +80,9 @@ def test_migration_bumps_to_v4_and_adds_columns(tmp_path):
     db.conn.execute("UPDATE schema_version SET version = 3")
     db.conn.commit()
     db.close()
-    db = Database(path)  # reopen: v3 -> v4
+    db = Database(path)  # reopen: v3 -> current (v4 columns + later bumps)
     version = db.query_one("SELECT version FROM schema_version LIMIT 1")["version"]
-    assert version == CURRENT_SCHEMA_VERSION == 4
+    assert version == CURRENT_SCHEMA_VERSION >= 4
     cols = {r["name"] for r in db.query("PRAGMA table_info(variable_expenses)")}
     assert {"recur_interval_months", "recur_end"} <= cols
     cols = {r["name"] for r in db.query("PRAGMA table_info(import_log)")}

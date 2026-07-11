@@ -25,11 +25,12 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from modules import dates
+from modules import dates, savings_goals
 from modules.calculator import timeline
 from modules.money import format_eur, format_eur_short
 from ui import theme
 from ui.budget_dialog import CategoryBudgetDialog
+from ui.goal_dialogs import SavingsGoalsManageDialog
 from ui.views.base_view import BaseView
 from ui.widgets.chart_canvas import ChartCanvas
 from ui.widgets.common import StatCard, clear_layout, heading, muted, primary_button
@@ -102,6 +103,7 @@ class DashboardView(BaseView):
         budget_panel = self._budget_panel(ov, c)
         if budget_panel is not None:
             self._body.addWidget(budget_panel)
+        self._body.addWidget(self._goals_panel(c))
         self._body.addWidget(self._timeline_panel(ov, c))
         self._body.addStretch(1)
 
@@ -316,6 +318,82 @@ class DashboardView(BaseView):
 
     def _open_budgets(self) -> None:
         if CategoryBudgetDialog(self.ctx, self).exec():
+            self.ctx.notify_changed()
+
+    # -- savings goals --------------------------------------------------------
+    def _goals_panel(self, c) -> QWidget:
+        """Progress bars of the persisted savings goals (see modules.savings_goals)."""
+        goals = self.ctx.goals.list()
+        panel = QFrame()
+        panel.setObjectName("Card")
+        pl = QVBoxLayout(panel)
+        pl.setContentsMargins(22, 20, 22, 20)
+        pl.setSpacing(12)
+
+        head = QHBoxLayout()
+        head.addWidget(self._panel_title("Sparziele"))
+        head.addStretch(1)
+        manage = QPushButton("Sparziele anlegen" if not goals else "Verwalten")
+        manage.setObjectName("Link")
+        manage.setCursor(Qt.CursorShape.PointingHandCursor)
+        manage.clicked.connect(self._open_goals)
+        head.addWidget(manage)
+        pl.addLayout(head)
+
+        if not goals:
+            hint = QLabel("Lege ein Sparziel mit Rate und Zielbetrag fest – der "
+                          "Fortschritt wächst dann von allein mit.")
+            hint.setObjectName("Faint")
+            hint.setWordWrap(True)
+            pl.addWidget(hint)
+            return panel
+
+        for goal in goals:
+            pl.addWidget(self._goal_row(goal, c))
+        return panel
+
+    def _goal_row(self, goal, c) -> QWidget:
+        p = savings_goals.compute(goal)
+        wrap = QWidget()
+        box = QVBoxLayout(wrap)
+        box.setContentsMargins(0, 0, 0, 0)
+        box.setSpacing(4)
+
+        color = c["green"] if p.reached else c["blue"]
+        top = QHBoxLayout()
+        name = QLabel(goal.name)
+        name.setObjectName("Muted")
+        state = QLabel(f"{format_eur(p.saved_cents)} / {format_eur(p.target_cents)}"
+                       f" · {round(p.ratio * 100)} %")
+        state.setStyleSheet(f"color: {color}; font-weight: 600;")
+        state.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        top.addWidget(name)
+        top.addStretch(1)
+        top.addWidget(state)
+        box.addLayout(top)
+
+        bar = QProgressBar()
+        bar.setTextVisible(False)
+        bar.setFixedHeight(8)
+        bar.setRange(0, 1000)
+        bar.setValue(round(p.ratio * 1000))
+        bar.setAccessibleName(
+            f"Sparziel {goal.name}: {round(p.ratio * 100)} Prozent erreicht")
+        bar.setStyleSheet(
+            f"QProgressBar {{ background: {c['surface_3']}; border: none; border-radius: 4px; }}"
+            f"QProgressBar::chunk {{ background: {color}; border-radius: 4px; }}")
+        box.addWidget(bar)
+
+        sub = QLabel(f"{format_eur(goal.monthly_cents)} / Monat · "
+                     f"{savings_goals.eta_label(p)}")
+        sub.setObjectName("Faint")
+        box.addWidget(sub)
+        return wrap
+
+    def _open_goals(self) -> None:
+        dlg = SavingsGoalsManageDialog(self.ctx, self)
+        dlg.exec()
+        if dlg.changed:
             self.ctx.notify_changed()
 
     def _timeline_panel(self, ov, c) -> QWidget:

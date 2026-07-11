@@ -157,6 +157,34 @@ CREATE TABLE IF NOT EXISTS category_budgets (
     UNIQUE (category)
 );
 
+-- --- Savings goals (schema v5): persisted target with derived progress -----
+-- The saved amount is never booked: it is the scheduled state (monthly rate ×
+-- months since start, see modules.savings_goals) plus manual_cents, a user
+-- correction for start balances or skipped months. Purely additive — the
+-- table is created on existing databases by this CREATE IF NOT EXISTS.
+CREATE TABLE IF NOT EXISTS savings_goals (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    name          TEXT    NOT NULL,
+    target_cents  INTEGER NOT NULL DEFAULT 0,
+    monthly_cents INTEGER NOT NULL DEFAULT 0,
+    start_date    TEXT    NOT NULL,                    -- ISO; first saving month
+    manual_cents  INTEGER NOT NULL DEFAULT 0,          -- correction, may be negative
+    note          TEXT,
+    created_at    TEXT    NOT NULL DEFAULT (datetime('now')),
+    updated_at    TEXT    NOT NULL DEFAULT (datetime('now'))
+);
+
+-- --- Abo-Radar (schema v5): hidden/adopted suggestion patterns --------------
+-- One row per normalised payee pattern the user dismissed or already adopted
+-- as a fixed cost, so the suggestion never resurfaces. Financial-adjacent
+-- data, therefore part of WIPE_TABLES (a full reset clears it).
+CREATE TABLE IF NOT EXISTS subscription_ignores (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    pattern    TEXT    NOT NULL,
+    created_at TEXT    NOT NULL DEFAULT (datetime('now')),
+    UNIQUE (pattern)
+);
+
 -- --- Indexes ---------------------------------------------------------------
 CREATE INDEX IF NOT EXISTS idx_var_date     ON variable_expenses(date);
 CREATE INDEX IF NOT EXISTS idx_varincome_date ON variable_income(date);

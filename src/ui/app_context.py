@@ -26,7 +26,9 @@ from modules.db_handler.repositories import (
     ImportRuleRepository,
     IncomeRepository,
     MonthlySummaryRepository,
+    SavingsGoalRepository,
     SettingsRepository,
+    SubscriptionIgnoreRepository,
     VariableExpenseRepository,
     VariableIncomeRepository,
 )
@@ -56,6 +58,8 @@ class AppContext(QObject):
         self.import_rules = ImportRuleRepository(db)
         self.import_log = ImportLogRepository(db)
         self.bank_profiles = BankProfileRepository(db)
+        self.goals = SavingsGoalRepository(db)
+        self.sub_ignores = SubscriptionIgnoreRepository(db)
 
     # -- theme --------------------------------------------------------------
     @property

@@ -33,6 +33,14 @@ werden aus **derselben Codebasis** gebaut, sodass der Funktionsumfang identisch 
 - **Rechner** – Annuitäten-, Ballon-, Auto- und Hausfinanzierung mit vollständigem
   Tilgungsplan, Standard/Ballon-Vergleich und Haushaltsbudget-Check beim Auto.
 - **Sparplaner** – Sparrate ↔ Sparziel mit Zinseszins, Startkapital und Budget-Check.
+- **Sparziele** – persistierte Ziele mit Zielbetrag, Sparrate und Startmonat:
+  der Stand wächst automatisch mit (plus manueller Korrektur, z. B. Startguthaben),
+  das Dashboard zeigt Fortschrittsbalken samt „erreicht ≈ Monat Jahr"-Prognose.
+  Ein berechneter Sparplan lässt sich direkt als Sparziel merken.
+- **Abo-Radar** – erkennt wiederkehrende Zahlungen (monatlich, quartalsweise,
+  jährlich) automatisch in den Buchungen – rein lokal, ohne Internet – samt
+  geschätzter Jahreskosten und **Preiserhöhungs-Warnung**. Gefundene Abos lassen
+  sich per Klick als Fixkosten übernehmen oder ausblenden (beides rückgängig machbar).
 - **In den Haushalt übernehmen** – berechnete Sparpläne und Kredite lassen sich per
   Klick (mit Bestätigung) ins Haushaltsbuch einplanen: der Sparplan als Fixposten
   über seine Laufzeit – **mit wählbarem Startmonat** (aktueller, nächster oder ein
@@ -55,7 +63,7 @@ werden aus **derselben Codebasis** gebaut, sodass der Funktionsumfang identisch 
   optional mit Enddatum.
 - **Schnelle Bedienung** – Monatsauswahl per Klick aufs Monatslabel
   (Monats-/Jahres-Picker) und „Heute"-Sprung; Tastatur-Kurzbefehle:
-  Strg+1–8 (Bereiche), Strg+N (neuer Eintrag), Strg+F (Ausgaben-Suche),
+  Strg+1–9 (Bereiche), Strg+N (neuer Eintrag), Strg+F (Ausgaben-Suche),
   Strg+Bild↑/↓ (Monat wechseln), Entf/Enter in Tabellen, Enter rechnet.
 - **Hell-/Dunkel-Design**, deutsche Formate (`1.234,56 €`, `TT.MM.JJJJ`),
   gespeicherte Fenstergröße, automatische Update-Prüfung.

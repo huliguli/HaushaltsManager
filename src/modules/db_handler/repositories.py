@@ -13,6 +13,7 @@ from modules.models import (
     FixedCost,
     IncomeSource,
     MonthlySummary,
+    SavingsGoal,
     VariableExpense,
     VariableIncome,
 )
@@ -184,6 +185,12 @@ class VariableExpenseRepository:
             "SELECT * FROM variable_expenses ORDER BY date DESC, id DESC LIMIT ?",
             (limit,),
         )
+        return [VariableExpense.from_row(r) for r in rows]
+
+    def list_recurring_templates(self) -> list[VariableExpense]:
+        """All recurring templates (the rows, not their monthly occurrences)."""
+        rows = self.db.query(
+            "SELECT * FROM variable_expenses WHERE recurring = 1 ORDER BY id")
         return [VariableExpense.from_row(r) for r in rows]
 
     def get(self, row_id: int) -> VariableExpense | None:
@@ -467,6 +474,58 @@ class CategoryBudgetRepository:
             "ON CONFLICT(category) DO UPDATE SET limit_cents = excluded.limit_cents, "
             "updated_at = datetime('now')",
             (category, int(limit_cents)))
+
+
+class SavingsGoalRepository:
+    """Persisted savings targets; progress is computed in modules.savings_goals."""
+
+    def __init__(self, db: Database) -> None:
+        self.db = db
+
+    def list(self) -> list[SavingsGoal]:
+        rows = self.db.query("SELECT * FROM savings_goals ORDER BY id")
+        return [SavingsGoal.from_row(r) for r in rows]
+
+    def get(self, row_id: int) -> SavingsGoal | None:
+        row = self.db.query_one("SELECT * FROM savings_goals WHERE id = ?", (row_id,))
+        return SavingsGoal.from_row(row) if row else None
+
+    def add(self, item: SavingsGoal) -> int:
+        return self.db.insert("savings_goals", item.to_params())
+
+    def update(self, item: SavingsGoal) -> None:
+        if item.id is None:
+            raise ValueError("SavingsGoal ohne id kann nicht aktualisiert werden.")
+        self.db.update("savings_goals", item.id, item.to_params())
+
+    def delete(self, row_id: int) -> None:
+        self.db.delete("savings_goals", row_id)
+
+
+class SubscriptionIgnoreRepository:
+    """Abo-Radar: normalised patterns the user hid or already adopted."""
+
+    def __init__(self, db: Database) -> None:
+        self.db = db
+
+    def all(self) -> set[str]:
+        return {r["pattern"] for r in self.db.query(
+            "SELECT pattern FROM subscription_ignores")}
+
+    def add(self, pattern: str) -> None:
+        pattern = (pattern or "").strip()
+        if not pattern:
+            return
+        self.db.execute(
+            "INSERT OR IGNORE INTO subscription_ignores (pattern) VALUES (?)",
+            (pattern,))
+
+    def remove(self, pattern: str) -> None:
+        self.db.execute(
+            "DELETE FROM subscription_ignores WHERE pattern = ?", (pattern,))
+
+    def clear(self) -> None:
+        self.db.execute("DELETE FROM subscription_ignores")
 
 
 class MonthlySummaryRepository:

@@ -249,6 +249,16 @@ class SparplanerView(BaseView):
         # Offer to plan the savings rate into the household book (as a fixed cost
         # over the term). Only when there is an actual monthly rate to save.
         if res.monthly_cents > 0:
+            # In goal mode the computed plan can also become a persisted
+            # Sparziel with progress tracking (dashboard card).
+            if self.mode_goal.isChecked():
+                goal_btn = QPushButton("Als Sparziel merken")
+                goal_btn.setObjectName("Ghost")
+                goal_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+                goal_btn.clicked.connect(
+                    lambda _=False, target=self.goal_field.cents() or 0,
+                    mo=res.monthly_cents: self._save_goal(target, mo))
+                badge_row.addWidget(goal_btn)
             plan_btn = primary_button("Zum Haushaltsbuch hinzufügen", c)
             plan_btn.clicked.connect(
                 lambda _=False, mo=res.monthly_cents, mn=months:
@@ -324,6 +334,17 @@ class SparplanerView(BaseView):
             header.setSectionResizeMode(col, QHeaderView.ResizeMode.Stretch)
         align_table_headers(table, right_cols=(1, 2, 3))
         return table
+
+    def _save_goal(self, target_cents: int, monthly_cents: int) -> None:
+        """Persist the computed goal plan as a Sparziel (pre-filled dialog)."""
+        from modules.models import SavingsGoal
+        from ui.goal_dialogs import SavingsGoalDialog
+        prefill = SavingsGoal(name="", target_cents=target_cents,
+                              monthly_cents=monthly_cents)
+        dlg = SavingsGoalDialog(prefill, parent=self)
+        if dlg.exec():
+            self.ctx.goals.add(dlg.result_model)
+            self.ctx.notify_changed()
 
     def refresh(self) -> None:
         # Recompute on navigation/data change so the Verbleibend stays live.

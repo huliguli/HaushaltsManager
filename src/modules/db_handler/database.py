@@ -17,7 +17,7 @@ from modules.logging_setup import get_logger
 
 _log = get_logger("db")
 
-CURRENT_SCHEMA_VERSION = 4
+CURRENT_SCHEMA_VERSION = 5
 
 
 class DatabaseCorruptError(RuntimeError):
@@ -48,6 +48,8 @@ WIPE_TABLES = (
     "import_rules",
     "import_log",
     "bank_profiles",
+    "savings_goals",
+    "subscription_ignores",
 )
 
 # Schema v2 (v1.6.0): the expense taxonomy was refined into finer, better-named
@@ -206,6 +208,7 @@ class Database:
         self._migrate_expense_categories_v2()
         self._migrate_v3()
         self._migrate_v4()
+        self._migrate_v5()
 
     def _migrate_v3(self) -> None:
         """Record schema v3 on an existing database (run once).
@@ -234,6 +237,20 @@ class Database:
         if row is None or row["version"] >= 4:
             return
         self.conn.execute("UPDATE schema_version SET version = 4")
+        self.conn.commit()
+
+    def _migrate_v5(self) -> None:
+        """Record schema v5 on an existing database (run once).
+
+        The v5 additions (``savings_goals`` and ``subscription_ignores``) are
+        whole new tables created by ``schema.sql`` via ``CREATE ... IF NOT
+        EXISTS`` on every start — no column or data change to apply here, only
+        the stored version needs bumping for the forward guard.
+        """
+        row = self.conn.execute("SELECT version FROM schema_version LIMIT 1").fetchone()
+        if row is None or row["version"] >= 5:
+            return
+        self.conn.execute("UPDATE schema_version SET version = 5")
         self.conn.commit()
 
     def wipe_financial_data(self) -> None:

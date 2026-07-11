@@ -23,6 +23,7 @@ from app_meta import APP_DISPLAY_NAME, APP_VERSION, GITHUB_REPO, app_icon_path
 from modules.updater import updater
 from ui import icons, theme
 from ui.app_context import AppContext
+from ui.views.abo_radar_view import AboRadarView
 from ui.views.base_view import BaseView
 from ui.views.dashboard_view import DashboardView
 from ui.views.einstellungen_view import EinstellungenView
@@ -42,6 +43,7 @@ _NAV = [
     ("Kredite", "credit", KrediteView),
     ("Rechner", "calculator", RechnerView),
     ("Sparplaner", "trend", SparplanerView),
+    ("Abo-Radar", "refresh", AboRadarView),
     ("Import / Export", "exchange", ImportExportView),
     ("Einstellungen", "settings", EinstellungenView),
 ]
@@ -85,7 +87,7 @@ class MainWindow(QWidget):
     def _init_shortcuts(self) -> None:
         """App-wide shortcuts (Qt maps Ctrl to Cmd on macOS automatically).
 
-        Strg+1..8 switch views, Strg+N opens the active view's "new entry"
+        Strg+1..9 switch views, Strg+N opens the active view's "new entry"
         dialog, Strg+F jumps to the expense search, Strg+Bild↑/↓ steps the
         visible month navigator. Plain Bild↑/↓ stays untouched so tables and
         scroll areas keep their normal page scrolling.

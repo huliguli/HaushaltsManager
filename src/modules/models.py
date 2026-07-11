@@ -281,6 +281,49 @@ class Credit:
 
 
 @dataclass
+class SavingsGoal:
+    """A persisted savings target whose progress is derived, never booked.
+
+    The saved amount is the scheduled state (``monthly_cents`` × months since
+    ``start_date``, see :mod:`modules.savings_goals`) plus ``manual_cents`` — a
+    user correction for an existing start balance or a skipped month. This
+    keeps the goal honest without a separate bookings table.
+    """
+
+    name: str
+    target_cents: int = 0
+    monthly_cents: int = 0
+    start_date: str | None = None      # ISO; first month that counts as saved
+    manual_cents: int = 0              # correction, may be negative
+    note: str = ""
+    id: int | None = None
+
+    @staticmethod
+    def from_row(row) -> "SavingsGoal":
+        return SavingsGoal(
+            id=row["id"],
+            name=row["name"],
+            target_cents=row["target_cents"],
+            monthly_cents=row["monthly_cents"],
+            start_date=row["start_date"],
+            manual_cents=row["manual_cents"],
+            note=row["note"] or "",
+        )
+
+    def to_params(self) -> dict:
+        return {
+            "name": self.name,
+            "target_cents": int(self.target_cents),
+            "monthly_cents": int(self.monthly_cents),
+            # The column is NOT NULL: a goal without an explicit start simply
+            # starts counting in the month it was created.
+            "start_date": self.start_date or dates.to_iso(dates.today()),
+            "manual_cents": int(self.manual_cents),
+            "note": self.note or None,
+        }
+
+
+@dataclass
 class MonthlySummary:
     year: int
     month: int
