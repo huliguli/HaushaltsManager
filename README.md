@@ -58,6 +58,9 @@ werden aus **derselben Codebasis** gebaut, sodass der Funktionsumfang identisch 
   korrigierbarer Vorschau sowie **Excel-Monatsüberblick und PDF-Monatsbericht –
   für den aktuellen oder einen beliebigen vergangenen Monat** (per Monatsauswahl)
   und **Excel-/PDF-Jahresbericht** mit Vorjahresvergleich (per Jahresauswahl).
+  Alle Berichte im App-Design: Kennzahlen-Karten, farbige Plus/Minus-Werte,
+  eingebettete Diagramme (auch echte Excel-Diagramme), Filter und druckfertiges
+  Seitenlayout.
 - **Datensicherung** – automatische Backups (täglich beim Start sowie vor
   Kontoauszug-Import, Daten-Aktualisierung und Löschen, die letzten 10 werden
   aufbewahrt), manuelles Backup und Ein-Klick-Wiederherstellung in den

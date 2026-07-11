@@ -17,8 +17,12 @@ from pathlib import Path
 from collections import defaultdict
 
 from openpyxl import Workbook, load_workbook
+from openpyxl.chart import BarChart, PieChart, Reference
+from openpyxl.chart.marker import DataPoint
+from openpyxl.chart.shapes import GraphicalProperties
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
+from openpyxl.worksheet.properties import PageSetupProperties
 
 from modules import dates
 from modules.calculator import annuity, timeline
@@ -26,21 +30,33 @@ from modules.models import CREDIT_STATUS_LABELS, INCOME_TYPE_LABELS
 from modules.money import cents_to_euros, format_eur, parse_eur
 
 # --- Workbook styling vocabulary ------------------------------------------
-_MONEY_FMT = '#,##0.00 €'
-_PCT_FMT = '0.0 %'
+# Negative amounts render red automatically (number-format section syntax).
+_MONEY_FMT = '#,##0.00 €;[Red]-#,##0.00 €'
+_PCT_FMT = '0.0 %;[Red]-0.0 %'
 _NAVY = "1B2330"
+_ACCENT = "2F6BD8"
 _MUTED = "5D6877"
+_GREEN = "1F9D57"
+_RED = "D6453D"
 _HEADER_FILL = PatternFill("solid", fgColor=_NAVY)
 _HEADER_FONT = Font(color="FFFFFF", bold=True, size=11)
-_TITLE_FONT = Font(color=_NAVY, bold=True, size=16)
-_SUBTITLE_FONT = Font(color=_MUTED, size=10)
+_TITLE_FONT = Font(color="FFFFFF", bold=True, size=15)
+_SUBTITLE_FONT = Font(color="C6D0E2", size=9.5)
+_NOTE_FONT = Font(color=_MUTED, size=10)
 _TOTAL_FONT = Font(color=_NAVY, bold=True)
 _TOTAL_FILL = PatternFill("solid", fgColor="EEF1F6")
 _ALT_FILL = PatternFill("solid", fgColor="F6F8FB")
+_BANNER_FILL = PatternFill("solid", fgColor=_NAVY)
+_HIGHLIGHT_FILL = PatternFill("solid", fgColor="E7EEFB")
 _ROW_BORDER = Border(bottom=Side(style="thin", color="E4E9F1"))
 _TOTAL_BORDER = Border(top=Side(style="thin", color="B8C0CC"))
+_ACCENT_BOTTOM = Border(bottom=Side(style="medium", color=_ACCENT))
 _RIGHT = Alignment(horizontal="right", vertical="center")
 _LEFT = Alignment(horizontal="left", vertical="center")
+
+# Series colours for embedded charts (same cycle as the in-app charts).
+_CHART_COLORS = ["2F6BD8", "1F9D57", "D98817", "D6453D", "8A93A3",
+                 "7C5CFF", "15B8C4", "E6699A"]
 
 
 def _safe_text(value) -> str:
@@ -61,13 +77,37 @@ def _euros(cents: int):
 
 
 # --- Export ----------------------------------------------------------------
-def _sheet_title(ws, title: str, subtitle: str, span: int) -> int:
-    """Write a two-line title block; return the row the table header goes on."""
+def _sheet_title(ws, title: str, subtitle: str, span: int,
+                 landscape: bool = False) -> int:
+    """Write the navy banner (wordmark look) + subtitle; return the header row.
+
+    Also switches the sheet to a report look: no gridlines, navy tab colour,
+    print scaled to one page width (``landscape`` for chart/matrix sheets so a
+    print or PDF export never splits columns across pages). The banner spans
+    the table width, closed off by an accent baseline — the same signature as
+    the app window and the PDF reports.
+    """
+    ws.sheet_view.showGridLines = False
+    ws.sheet_properties.tabColor = _NAVY
+    ws.page_setup.orientation = "landscape" if landscape else "portrait"
+    ws.page_setup.fitToWidth = 1
+    ws.page_setup.fitToHeight = 0
+    ws.sheet_properties.pageSetUpPr = PageSetupProperties(fitToPage=True)
     ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=span)
-    ws.cell(row=1, column=1, value=title).font = _TITLE_FONT
     ws.merge_cells(start_row=2, start_column=1, end_row=2, end_column=span)
-    ws.cell(row=2, column=1, value=subtitle).font = _SUBTITLE_FONT
-    ws.row_dimensions[1].height = 21
+    for col in range(1, span + 1):
+        ws.cell(row=1, column=col).fill = _BANNER_FILL
+        cell2 = ws.cell(row=2, column=col)
+        cell2.fill = _BANNER_FILL
+        cell2.border = _ACCENT_BOTTOM
+    t = ws.cell(row=1, column=1, value=title)
+    t.font = _TITLE_FONT
+    t.alignment = Alignment(horizontal="left", vertical="bottom", indent=1)
+    s = ws.cell(row=2, column=1, value=subtitle)
+    s.font = _SUBTITLE_FONT
+    s.alignment = Alignment(horizontal="left", vertical="top", indent=1)
+    ws.row_dimensions[1].height = 24
+    ws.row_dimensions[2].height = 16
     return 4  # row 3 is a spacer; the header goes on row 4
 
 
@@ -114,6 +154,61 @@ def _totals(ws, row: int, span: int, label: str, total_cents: int, money_col: in
     mc.alignment = _RIGHT
 
 
+def _autofilter(ws, header_row: int, last_row: int, span: int) -> None:
+    """Clickable column filters over the data block (report convenience)."""
+    if last_row > header_row:
+        ws.auto_filter.ref = (f"A{header_row}:"
+                              f"{get_column_letter(span)}{last_row}")
+
+
+def _add_pie(ws, *, header_row: int, last_row: int, anchor: str, title: str) -> None:
+    """Pie chart over (category, amount) rows, slices in the app's colours."""
+    if last_row <= header_row:
+        return
+    pie = PieChart()
+    pie.title = title
+    pie.height, pie.width = 9.2, 16.5
+    data = Reference(ws, min_col=2, min_row=header_row, max_row=last_row)
+    cats = Reference(ws, min_col=1, min_row=header_row + 1, max_row=last_row)
+    pie.add_data(data, titles_from_data=True)
+    pie.set_categories(cats)
+    points = []
+    for i in range(last_row - header_row):
+        dp = DataPoint(idx=i)
+        dp.graphicalProperties = GraphicalProperties(
+            solidFill=_CHART_COLORS[i % len(_CHART_COLORS)])
+        points.append(dp)
+    pie.series[0].data_points = points
+    ws.add_chart(pie, anchor)
+
+
+def _add_bars(ws, *, header_row: int, last_row: int, value_cols: list[int],
+              anchor: str, title: str, colors: list[str]) -> None:
+    """Clustered bar chart: one series per value column, app colour cycle."""
+    if last_row <= header_row:
+        return
+    chart = BarChart()
+    chart.type = "col"
+    chart.title = title
+    chart.height, chart.width = 8.4, 21
+    chart.gapWidth = 60
+    chart.y_axis.numFmt = '#,##0 "€"'
+    # openpyxl quirk: without an explicit delete=False Excel drops the axis
+    # labels entirely when a number format is set.
+    chart.x_axis.delete = False
+    chart.y_axis.delete = False
+    for i, col in enumerate(value_cols):
+        data = Reference(ws, min_col=col, min_row=header_row, max_row=last_row)
+        chart.add_data(data, titles_from_data=True)
+        chart.series[i].graphicalProperties = GraphicalProperties(
+            solidFill=colors[i % len(colors)])
+    chart.set_categories(
+        Reference(ws, min_col=1, min_row=header_row + 1, max_row=last_row))
+    if len(value_cols) == 1:
+        chart.legend = None
+    ws.add_chart(chart, anchor)
+
+
 def export_workbook(
     path: str | Path, *, income, fixed_costs, expenses, credits, overview,
     month_label: str | None = None, history_expenses=None,
@@ -144,24 +239,32 @@ def export_workbook(
     _widths(ws, [34, 20])
     _header(ws, ["Position", "Betrag / Monat"], hr, right_cols=(1,))
     rows = [
-        ("Einnahmen (aktiv)", overview.income_cents),
-        ("Fixkosten gesamt", overview.fixed_cents),
-        ("davon Kredite", overview.credits_cents),
-        ("Variable Ausgaben", overview.variable_cents),
-        ("Verfügbar nach Fixkosten", overview.after_fixed_cents),
-        ("Verfügbar nach allem", overview.after_all_cents),
+        ("Einnahmen (aktiv)", overview.income_cents, False),
+        ("Fixkosten gesamt", overview.fixed_cents, False),
+        ("davon Kredite", overview.credits_cents, False),
+        ("Variable Ausgaben", overview.variable_cents, False),
+        ("Verfügbar nach Fixkosten", overview.after_fixed_cents, True),
+        ("Verfügbar nach allem", overview.after_all_cents, True),
     ]
     r = hr + 1
-    for i, (label, cents) in enumerate(rows):
+    for i, (label, cents, highlight) in enumerate(rows):
         z = i % 2 == 1
-        _cell(ws, r, 1, _safe_text(label), zebra=z)
-        _cell(ws, r, 2, _euros(cents), money=True, zebra=z)
+        name = _cell(ws, r, 1, _safe_text(label), zebra=z)
+        value = _cell(ws, r, 2, _euros(cents), money=True, zebra=z)
+        if highlight:
+            # The two "Verfügbar" results are what the report is about —
+            # lift them out with a soft accent fill and traffic-light colour.
+            name.fill = _HIGHLIGHT_FILL
+            name.font = _TOTAL_FONT
+            value.fill = _HIGHLIGHT_FILL
+            value.font = Font(bold=True, size=12,
+                              color=_GREEN if cents >= 0 else _RED)
         r += 1
     # Annual projection uses the RECURRING surplus only — a one-off credit this
     # month must not be multiplied across the whole year (matches the dashboard).
     note = ws.cell(row=r + 1, column=1,
                    value=f"≈ {format_eur(max(0, overview.recurring_after_all_cents) * 12)} pro Jahr ansparbar")
-    note.font = _SUBTITLE_FONT
+    note.font = _NOTE_FONT
 
     # --- Einnahmen ---
     ws = wb.create_sheet("Einnahmen")
@@ -179,6 +282,7 @@ def export_workbook(
             total += it.amount_cents
         r += 1
     _totals(ws, r, 4, "Summe aktiv", total, 3)
+    _autofilter(ws, hr, r - 1, 4)
 
     # --- Fixkosten ---
     ws = wb.create_sheet("Fixkosten")
@@ -199,6 +303,7 @@ def export_workbook(
         total += fc.amount_cents
         r += 1
     _totals(ws, r, 6, "Summe", total, 3)
+    _autofilter(ws, hr, r - 1, 6)
 
     # --- Fixkosten-Timeline ---
     ws = wb.create_sheet("Fixkosten-Timeline")
@@ -227,7 +332,7 @@ def export_workbook(
     ws = wb.create_sheet("Ausgaben")
     exp_sub = f"Erfasste Ausgaben im Monat {month_label}" if month_label else "Einzelne erfasste Ausgaben"
     hr = _sheet_title(ws, "Variable Ausgaben", exp_sub, 4)
-    _widths(ws, [16, 18, 42, 16])
+    _widths(ws, [16, 26, 42, 16])
     _header(ws, ["Datum", "Kategorie", "Beschreibung", "Betrag"], hr, right_cols=(3,))
     r, total = hr + 1, 0
     for i, e in enumerate(expenses):
@@ -242,6 +347,7 @@ def export_workbook(
         total += e.amount_cents
         r += 1
     _totals(ws, r, 4, "Summe", total, 4)
+    _autofilter(ws, hr, r - 1, 4)
 
     # --- Ausgaben nach Kategorie ---
     by_cat: dict[str, int] = defaultdict(int)
@@ -250,7 +356,7 @@ def export_workbook(
     ws = wb.create_sheet("Ausgaben nach Kategorie")
     cat_sub = (f"Summe je Kategorie im Monat {month_label}"
                if month_label else "Summe je Kategorie über alle erfassten Ausgaben")
-    hr = _sheet_title(ws, "Ausgaben nach Kategorie", cat_sub, 3)
+    hr = _sheet_title(ws, "Ausgaben nach Kategorie", cat_sub, 3, landscape=True)
     _widths(ws, [24, 18, 12])
     _header(ws, ["Kategorie", "Betrag", "Anteil"], hr, right_cols=(1, 2))
     cat_total = sum(by_cat.values()) or 1
@@ -262,13 +368,15 @@ def export_workbook(
         _cell(ws, r, 3, cents / cat_total, pct=True, zebra=z)
         r += 1
     _totals(ws, r, 3, "Summe", sum(by_cat.values()), 2)
+    _add_pie(ws, header_row=hr, last_row=r - 1, anchor="E4",
+             title="Anteile" + (f" im Monat {month_label}" if month_label else ""))
 
     # --- Monatsverlauf (always the full history, independent of a chosen month) ---
     monthly: dict[str, int] = defaultdict(int)
     for e in hist:
         monthly[(e.date or "")[:7]] += e.amount_cents
     ws = wb.create_sheet("Monatsverlauf")
-    hr = _sheet_title(ws, "Monatsverlauf", "Variable Ausgaben je Monat", 2)
+    hr = _sheet_title(ws, "Monatsverlauf", "Variable Ausgaben je Monat", 2, landscape=True)
     _widths(ws, [18, 20])
     _header(ws, ["Monat", "Variable Ausgaben"], hr, right_cols=(1,))
     r = hr + 1
@@ -278,10 +386,12 @@ def export_workbook(
         _cell(ws, r, 1, label, zebra=z)
         _cell(ws, r, 2, _euros(monthly[ym]), money=True, zebra=z)
         r += 1
+    _add_bars(ws, header_row=hr, last_row=r - 1, value_cols=[2], anchor="D4",
+              title="Variable Ausgaben je Monat", colors=[_ACCENT])
 
     # --- Kredite ---
     ws = wb.create_sheet("Kredite")
-    hr = _sheet_title(ws, "Kredite", "Laufende und abbezahlte Kredite", 7)
+    hr = _sheet_title(ws, "Kredite", "Laufende und abbezahlte Kredite", 7, landscape=True)
     _widths(ws, [26, 14, 16, 14, 11, 14, 12])
     _header(ws, ["Bezeichnung", "Kategorie", "Gesamtbetrag", "Rate / Monat", "Zins p.a.", "Ende", "Status"],
             hr, right_cols=(2, 3, 4))
@@ -301,6 +411,7 @@ def export_workbook(
             monthly_active += cr.monthly_cents
         r += 1
     _totals(ws, r, 7, "Monatliche Belastung (aktiv)", monthly_active, 4)
+    _autofilter(ws, hr, r - 1, 7)
 
     # --- Tilgungspläne ---
     ws = wb.create_sheet("Tilgungspläne")
@@ -353,11 +464,18 @@ def export_year_workbook(path: str | Path, *, overview, prev_overview=None) -> P
     r = hr + 1
     for i, (label, cur, prev) in enumerate(rows):
         z = i % 2 == 1
-        _cell(ws, r, 1, _safe_text(label), zebra=z)
-        _cell(ws, r, 2, _euros(cur), money=True, zebra=z)
+        cells = [_cell(ws, r, 1, _safe_text(label), zebra=z),
+                 _cell(ws, r, 2, _euros(cur), money=True, zebra=z)]
         if has_prev:
-            _cell(ws, r, 3, _euros(prev), money=True, zebra=z)
-            _cell(ws, r, 4, _euros(cur - prev), money=True, zebra=z)
+            cells.append(_cell(ws, r, 3, _euros(prev), money=True, zebra=z))
+            cells.append(_cell(ws, r, 4, _euros(cur - prev), money=True, zebra=z))
+        if label.startswith("Saldo"):
+            # The year's bottom line — lifted out like on the dashboard.
+            for cell in cells:
+                cell.fill = _HIGHLIGHT_FILL
+                cell.font = _TOTAL_FONT
+            cells[1].font = Font(bold=True, size=12,
+                                 color=_GREEN if cur >= 0 else _RED)
         r += 1
     # Sparquote as a percent row (rate of a zero income stays empty).
     z = len(rows) % 2 == 1
@@ -371,7 +489,8 @@ def export_year_workbook(path: str | Path, *, overview, prev_overview=None) -> P
 
     # --- Monate ---
     ws = wb.create_sheet("Monate")
-    hr = _sheet_title(ws, f"Monate {year}", "Einnahmen, Ausgaben und Saldo je Monat", 5)
+    hr = _sheet_title(ws, f"Monate {year}", "Einnahmen, Ausgaben und Saldo je Monat", 5,
+                      landscape=True)
     _widths(ws, [16, 16, 16, 18, 16])
     _header(ws, ["Monat", "Einnahmen", "Fixkosten", "Variable Ausgaben", "Saldo"],
             hr, right_cols=(1, 2, 3, 4))
@@ -385,12 +504,16 @@ def export_year_workbook(path: str | Path, *, overview, prev_overview=None) -> P
         _cell(ws, r, 5, _euros(pt.remaining_cents), money=True, zebra=z)
         r += 1
     _totals(ws, r, 5, "Summe Saldo", overview.remaining_cents, 5)
+    _add_bars(ws, header_row=hr, last_row=r - 1, value_cols=[2, 3, 4], anchor="G4",
+              title=f"Einnahmen und Ausgaben {year}",
+              colors=[_ACCENT, "D98817", "8A93A3"])
 
     # --- Monatsmatrix (Kategorie × Monat) ---
     categories, per_month = _annual.category_matrix(overview)
     ws = wb.create_sheet("Monatsmatrix")
     hr = _sheet_title(ws, f"Ausgaben-Matrix {year}",
-                      "Variable Ausgaben je Kategorie und Monat", 14)
+                      "Variable Ausgaben je Kategorie und Monat", 14,
+                      landscape=True)
     _widths(ws, [24] + [11] * 12 + [13])
     month_heads = [dates.month_name(m)[:3] for m in range(1, 13)]
     _header(ws, ["Kategorie"] + month_heads + ["Summe"], hr,
