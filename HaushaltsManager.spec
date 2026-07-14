@@ -31,6 +31,52 @@ def _app_version() -> str:
 
 _VERSION = _app_version()
 
+
+def _version_info_file() -> str:
+    """Windows-Versionsressource aus version.json ERZEUGEN (kein Drift).
+
+    Die früher statisch gepflegte version_info.txt wurde bei Releases
+    vergessen: der Explorer meldete für die installierte v3.7.0 noch
+    "3.0.0.0". Die Datei wird darum bei jedem Build aus version.json
+    generiert (nach build/, gitignored). Nur Windows braucht sie.
+    """
+    if not _sys.platform.startswith('win'):
+        return None
+    parts = [int(p) for p in _VERSION.split('.') if p.isdigit()]
+    quad = tuple((parts + [0, 0, 0, 0])[:4])
+    dotted = '.'.join(str(n) for n in quad)
+    content = f"""# AUTOGENERIERT aus version.json - nicht von Hand bearbeiten.
+VSVersionInfo(
+  ffi=FixedFileInfo(
+    filevers={quad},
+    prodvers={quad},
+    mask=0x3f, flags=0x0, OS=0x40004, fileType=0x1, subtype=0x0, date=(0, 0)
+  ),
+  kids=[
+    StringFileInfo([
+      StringTable('040704b0', [
+        StringStruct('CompanyName', 'Mijonex'),
+        StringStruct('FileDescription', 'HaushaltsManager'),
+        StringStruct('FileVersion', '{dotted}'),
+        StringStruct('InternalName', 'HaushaltsManager'),
+        StringStruct('OriginalFilename', 'HaushaltsManager.exe'),
+        StringStruct('ProductName', 'HaushaltsManager'),
+        StringStruct('ProductVersion', '{dotted}')
+      ])
+    ]),
+    VarFileInfo([VarStruct('Translation', [0x0407, 1200])])
+  ]
+)
+"""
+    os.makedirs('build', exist_ok=True)
+    path = os.path.join('build', 'version_info.txt')
+    with open(path, 'w', encoding='utf-8') as fh:
+        fh.write(content)
+    return path
+
+
+_VERSION_INFO = _version_info_file()
+
 a = Analysis(
     ['src/main.py'],
     pathex=['src'],
@@ -74,7 +120,7 @@ exe = EXE(
     codesign_identity=None,
     entitlements_file=None,
     icon='assets/app.ico',
-    version='version_info.txt',
+    version=_VERSION_INFO,
 )
 
 coll = COLLECT(

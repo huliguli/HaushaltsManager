@@ -24,19 +24,42 @@ from modules.money import format_eur
 from ui.dialogs import ExpenseDialog, FixedCostDialog, IncomeDialog
 
 
+def _page_header(title: str, subtitle: str) -> QWidget:
+    """Titel + Untertitel einer Wizard-Seite als app-gestylte Labels.
+
+    Bewusst NICHT ``QWizardPage.setTitle/setSubTitle``: diesen Kopfbereich
+    zeichnet der Plattform-Style mit der SYSTEM-Palette. Im Windows-Dunkelmodus
+    ist er dadurch dunkel, während das App-Stylesheet die Textfarbe des hellen
+    Themes erzwingt — Ergebnis: dunkelblauer Text auf dunkelgrauem Grund
+    (unlesbar). Eigene Labels folgen dem App-Theme in hell UND dunkel.
+    (Gleiche Fehlerklasse wie der QMessageBox-Dunkelmodus-Fehler aus v1.0.3.)
+    """
+    box = QWidget()
+    layout = QVBoxLayout(box)
+    layout.setContentsMargins(0, 0, 0, 6)
+    layout.setSpacing(2)
+    heading = QLabel(title)
+    heading.setObjectName("H2")
+    sub = QLabel(subtitle)
+    sub.setObjectName("Muted")
+    sub.setWordWrap(True)
+    layout.addWidget(heading)
+    layout.addWidget(sub)
+    return box
+
+
 class _CollectPage(QWizardPage):
     """A wizard page that collects a list of models via an add dialog."""
 
     def __init__(self, title: str, subtitle: str, add_factory: Callable,
                  formatter: Callable, parent=None) -> None:
         super().__init__(parent)
-        self.setTitle(title)
-        self.setSubTitle(subtitle)
         self._add_factory = add_factory
         self._formatter = formatter
         self.items: list = []
 
         layout = QVBoxLayout(self)
+        layout.addWidget(_page_header(title, subtitle))
         self.list = QListWidget()
         layout.addWidget(self.list, 1)
 
@@ -74,7 +97,9 @@ class QuickSetupWizard(QWizard):
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
         self.setWindowTitle("Quick-Setup")
-        self.setWizardStyle(QWizard.WizardStyle.ModernStyle)
+        # ClassicStyle: zeichnet keinen Style-Header (siehe _page_header) —
+        # damit folgt der ganze Assistent dem App-Theme statt dem OS-Modus.
+        self.setWizardStyle(QWizard.WizardStyle.ClassicStyle)
         self.setMinimumSize(560, 480)
         self.setButtonText(QWizard.WizardButton.NextButton, "Weiter")
         self.setButtonText(QWizard.WizardButton.BackButton, "Zurück")
@@ -100,9 +125,10 @@ class QuickSetupWizard(QWizard):
 
     def _intro(self) -> QWizardPage:
         page = QWizardPage()
-        page.setTitle("Willkommen beim HaushaltsManager")
-        page.setSubTitle("In drei kurzen Schritten ist alles eingerichtet.")
         layout = QVBoxLayout(page)
+        layout.addWidget(_page_header(
+            "Willkommen beim HaushaltsManager",
+            "In drei kurzen Schritten ist alles eingerichtet."))
         text = QLabel(
             "Dieser Assistent hilft dir, deine Finanzen einzurichten:\n\n"
             "  1.  Einnahmen  (z. B. Gehalt, Minijob)\n"

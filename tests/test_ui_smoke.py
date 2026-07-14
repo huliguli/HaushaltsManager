@@ -45,3 +45,29 @@ def test_mainwindow_and_all_views_construct(tmp_path, monkeypatch):
 
     window.close()
     db.close()
+
+
+def test_wizard_avoids_the_os_styled_header(tmp_path, monkeypatch):
+    """Der Assistent darf keinen Style-Header verwenden.
+
+    Den zeichnet der Plattform-Style mit der SYSTEM-Palette: im
+    Windows-Dunkelmodus dunkler Grund, während unser Stylesheet die
+    Hell-Theme-Textfarbe erzwingt → unlesbar. Titel/Untertitel laufen
+    deshalb über eigene Labels (ui.wizard._page_header).
+    """
+    monkeypatch.setenv("APPDATA", str(tmp_path))
+    try:
+        from PyQt6.QtWidgets import QApplication, QWizard
+    except Exception as exc:  # pragma: no cover - Qt unavailable in this env
+        import pytest
+        pytest.skip(f"Qt nicht verfügbar: {exc}")
+
+    from ui.wizard import QuickSetupWizard
+
+    QApplication.instance() or QApplication([])
+    wizard = QuickSetupWizard()
+    assert wizard.wizardStyle() == QWizard.WizardStyle.ClassicStyle
+    for page_id in wizard.pageIds():
+        page = wizard.page(page_id)
+        assert not page.title(), "setTitle() erzeugt den OS-gefärbten Header"
+        assert not page.subTitle(), "setSubTitle() erzeugt den OS-gefärbten Header"
