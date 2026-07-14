@@ -33,6 +33,10 @@ class EinstellungenView(BaseView):
         super().__init__(ctx)
         self._checker = None
         self._installer = None
+        # Versions the user postponed with „Später“ — respected by the hourly
+        # background check for the rest of the session (a restart asks again).
+        self.session_dismissed: set[str] = set()
+        self._dialog_open = False
         self._primary_row_btns: list[QPushButton] = []
 
         # Six cards no longer fit a small window, so the whole view scrolls
@@ -167,13 +171,29 @@ class EinstellungenView(BaseView):
         self._install(info)
 
     def show_update_dialog(self, info) -> None:
+        # The hourly background check may fire while a dialog is already up —
+        # never stack a second one onto it.
+        if self._dialog_open:
+            return
         from ui.update_dialog import UpdateDialog
         dlg = UpdateDialog(info, self.ctx.colors, self)
-        dlg.exec()
+        self._dialog_open = True
+        try:
+            dlg.exec()
+        finally:
+            self._dialog_open = False
         if dlg.choice == "skip":
             self.ctx.config.set("skipped_version", info.tag)
         elif dlg.choice == "install":
             self._install(info)
+        else:
+            # „Später“: quiet for the rest of the session (per version).
+            self.session_dismissed.add(info.tag)
+
+    def update_flow_active(self) -> bool:
+        """True while an update dialog or download is in progress."""
+        return self._dialog_open or (
+            self._installer is not None and self._installer.isRunning())
 
     def _install(self, info) -> None:
         if not info.asset_url:
@@ -322,9 +342,11 @@ class EinstellungenView(BaseView):
     # -- app family -----------------------------------------------------------
     def _interop_card(self) -> QFrame:
         card, layout = self._card("App-Familie")
-        status = QLabel(self.ctx.sister.message)
-        status.setWordWrap(True)
-        layout.addWidget(status)
+        # Kept as an attribute: refresh() re-reads ctx.sister so the periodic
+        # family re-discovery is reflected without reopening the view.
+        self._interop_status = QLabel(self.ctx.sister.message)
+        self._interop_status.setWordWrap(True)
+        layout.addWidget(self._interop_status)
         hint = QLabel(
             "Der HaushaltsManager stellt dem KFZ-Manager seine Monatsausgaben "
             "über eine schreibgeschützte Interop-Schicht bereit und zeigt "
@@ -438,6 +460,8 @@ class EinstellungenView(BaseView):
     def refresh(self) -> None:
         if hasattr(self, "_light_btn"):
             self._sync_theme_buttons()
+        if hasattr(self, "_interop_status"):
+            self._interop_status.setText(self.ctx.sister.message)
 
     def on_theme_changed(self) -> None:
         self._sync_theme_buttons()

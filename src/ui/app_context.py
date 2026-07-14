@@ -72,8 +72,17 @@ class AppContext(QObject):
         self.pots = PotRepository(db)
         self.pot_moves = PotMovementRepository(db)
 
-        # Sister-app discovery once per session (fail-silent by contract).
+        # Sister-app discovery at startup; re-run periodically by the main
+        # window so a newly installed sister appears without a restart.
         self.sister = interop.discover_sister()
+
+    def refresh_sister(self) -> bool:
+        """Re-run the family discovery; True when the state changed."""
+        new = interop.discover_sister()
+        changed = (new.status != self.sister.status
+                   or new.db_path != self.sister.db_path)
+        self.sister = new
+        return changed
 
     # -- theme --------------------------------------------------------------
     @property

@@ -70,6 +70,41 @@ def test_opt_in_installs_without_asking(tmp_path, monkeypatch):
     db.close()
 
 
+def test_session_later_silences_hourly_recheck(tmp_path, monkeypatch):
+    # „Später“ in the dialog must keep the hourly background check quiet for
+    # this version — otherwise the app would nag every 60 minutes.
+    window, ctx, db = _window(tmp_path, monkeypatch)
+    calls = _spy(window)
+    window._views[-1].session_dismissed.add("v99.0.0")
+    window._on_startup_update(_info())
+    assert calls == []
+    window.close()
+    db.close()
+
+
+def test_background_timers_armed(tmp_path, monkeypatch):
+    window, ctx, db = _window(tmp_path, monkeypatch)
+    assert window._update_timer.isActive()
+    assert window._update_timer.interval() == window.UPDATE_CHECK_INTERVAL_MS == 3_600_000
+    assert window._family_timer.isActive()
+    assert window._family_timer.interval() == window.FAMILY_POLL_INTERVAL_MS == 300_000
+    window.close()
+    db.close()
+
+
+def test_periodic_check_respects_active_flow(tmp_path, monkeypatch):
+    # While a dialog/download is open, the hourly tick must not spawn a
+    # second checker thread.
+    window, ctx, db = _window(tmp_path, monkeypatch)
+    settings = window._views[-1]
+    settings._dialog_open = True
+    window._update_checker = None
+    window._periodic_update_check()
+    assert window._update_checker is None
+    window.close()
+    db.close()
+
+
 def test_auto_path_needs_an_asset_and_respects_skip(tmp_path, monkeypatch):
     window, ctx, db = _window(tmp_path, monkeypatch)
     ctx.config.set("update_auto_install", True)

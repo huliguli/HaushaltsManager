@@ -237,6 +237,16 @@ def test_unreadable_sister_degrades_silently(tmp_path):
     assert interop.next_appointments(fake) == []
 
 
+def test_refresh_sister_detects_change(tmp_path):
+    # Non-Qt: the context helper used by the 5-minute family timer.
+    from modules.config import Config  # noqa: F401 - ensure importable env
+    state_before = interop.discover_sister()
+    assert state_before.status == "fehlt"
+    _announce_sister(_sister_db(tmp_path))
+    state_after = interop.discover_sister()
+    assert state_after.status == "aktiv"
+
+
 # --- dashboard card (offscreen Qt) ----------------------------------------------------
 _APP = None  # keep the QApplication referenced (see test_drilldown.py)
 
@@ -268,6 +278,38 @@ def test_dashboard_shows_vehicle_card_when_sister_active(tmp_path, monkeypatch):
         texts = [w.text() for w in view.findChildren(QLabel)]
         assert any("Fahrzeuge (KFZ-Manager)" in t for t in texts)
         assert any("Golf" in t for t in texts)
+    finally:
+        db.close()
+
+
+def test_family_tick_picks_up_new_sister_live(tmp_path, monkeypatch):
+    """The 5-minute timer must surface a sister installed AFTER app start."""
+    monkeypatch.setenv("APPDATA", str(tmp_path / "appdata"))
+    import os
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    global _APP
+    try:
+        from PyQt6.QtWidgets import QApplication
+    except Exception as exc:  # pragma: no cover - Qt unavailable in this env
+        pytest.skip(f"Qt nicht verfügbar: {exc}")
+    _APP = QApplication.instance() or QApplication([])
+
+    from modules.config import Config
+    from ui.app_context import AppContext
+    from ui.main_window import MainWindow
+
+    db = Database(tmp_path / "t.db")
+    try:
+        ctx = AppContext(db, Config())
+        window = MainWindow(ctx)
+        assert ctx.sister.status == "fehlt"
+        # Sister appears while we are running...
+        _announce_sister(_sister_db(tmp_path))
+        window._family_tick()
+        assert ctx.sister.status == "aktiv"
+        # ...and our own announcement was refreshed by the tick.
+        assert (_family_dir() / interop.OWN_ANNOUNCE_FILE).is_file()
+        window.close()
     finally:
         db.close()
 
