@@ -17,8 +17,13 @@ APP_NAME = "HaushaltsManager"
 APP_DISPLAY_NAME = "HaushaltsManager"
 GITHUB_REPO = "huliguli/HaushaltsManager"
 
+# Name of the shared app-family folder next to the per-app data folders. Both
+# sister apps (HaushaltsManager, KFZ-Manager) announce themselves there — see
+# modules.interop for the contract.
+FAMILY_DIR_NAME = "AppFamilie"
+
 # Fallback version; the real value is read from the bundled version.json below.
-_FALLBACK_VERSION = "3.5.0"
+_FALLBACK_VERSION = "3.6.0"
 
 
 def is_frozen() -> bool:
@@ -82,6 +87,29 @@ def data_dir() -> Path:
     else:  # unusual setups
         path = Path.home() / f".{APP_NAME.lower()}"
     path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def family_dir(create: bool = True) -> Path:
+    """Shared app-family folder (``<data base>/AppFamilie``).
+
+    Lives BESIDE the app data folder (same platform logic as :func:`data_dir`),
+    so the sister apps can find each other without any registry or fixed
+    install paths. Every family app writes its announcement file here on
+    startup (``haushaltsmanager.json`` / ``kfzmanager.json``).
+    """
+    base = os.environ.get("APPDATA")
+    if base:
+        path = Path(base) / FAMILY_DIR_NAME
+    elif sys.platform == "darwin":
+        path = Path.home() / "Library" / "Application Support" / FAMILY_DIR_NAME
+    elif sys.platform.startswith("linux"):
+        xdg = os.environ.get("XDG_DATA_HOME")
+        path = (Path(xdg) if xdg else Path.home() / ".local" / "share") / FAMILY_DIR_NAME
+    else:  # unusual setups: sibling of the hidden app dir
+        path = Path.home() / f".{FAMILY_DIR_NAME.lower()}"
+    if create:
+        path.mkdir(parents=True, exist_ok=True)
     return path
 
 

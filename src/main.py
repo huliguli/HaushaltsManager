@@ -83,6 +83,11 @@ def main() -> int:
         from modules import backup
         backup.startup_backup(db.conn, backup.backups_dir(db.path))
         ctx = AppContext(db, config)
+        # App family: announce ourselves and publish the expense contract for
+        # the sister app (both fail silent — pure bonus features).
+        from modules import interop
+        interop.announce_self(db.path)
+        interop.refresh_ausgaben_monat(db, ctx.fixed, ctx.expenses)
     except Exception as exc:  # noqa: BLE001
         log.exception("Start fehlgeschlagen")
         QMessageBox.critical(None, APP_DISPLAY_NAME, f"Start fehlgeschlagen:\n{exc}")

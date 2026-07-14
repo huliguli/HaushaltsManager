@@ -14,7 +14,7 @@ from datetime import date
 
 from PyQt6.QtCore import QObject, pyqtSignal
 
-from modules import budget
+from modules import budget, interop
 from modules.config import Config
 from modules.db_handler.database import Database
 from modules.db_handler.repositories import (
@@ -72,6 +72,9 @@ class AppContext(QObject):
         self.pots = PotRepository(db)
         self.pot_moves = PotMovementRepository(db)
 
+        # Sister-app discovery once per session (fail-silent by contract).
+        self.sister = interop.discover_sister()
+
     # -- theme --------------------------------------------------------------
     @property
     def theme_name(self) -> str:
@@ -88,6 +91,9 @@ class AppContext(QObject):
     # -- data events --------------------------------------------------------
     def notify_changed(self) -> None:
         """Signal that data was mutated so open views can refresh."""
+        # Keep the published expense contract in step with every mutation
+        # (cheap full rebuild; never raises — see modules.interop).
+        interop.refresh_ausgaben_monat(self.db, self.fixed, self.expenses)
         self.data_changed.emit()
 
     def request_drilldown(self, year: int, month: int, category: str = "") -> None:

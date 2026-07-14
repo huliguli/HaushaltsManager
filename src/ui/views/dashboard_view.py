@@ -119,6 +119,9 @@ class DashboardView(BaseView):
             self._body.addWidget(budget_panel)
         self._body.addWidget(self._goals_panel(c))
         self._body.addWidget(self._pots_panel(c))
+        vehicles_panel = self._vehicles_panel(ov, c)
+        if vehicles_panel is not None:
+            self._body.addWidget(vehicles_panel)
         self._body.addWidget(self._timeline_panel(ov, c))
         self._body.addStretch(1)
 
@@ -426,6 +429,82 @@ class DashboardView(BaseView):
             self.ctx.notify_changed()
 
     # -- Töpfe ---------------------------------------------------------------
+    def _vehicles_panel(self, ov, c) -> QWidget | None:
+        """Fahrzeuge aus dem KFZ-Manager (App-Familie), rein lesend.
+
+        Appears only while the sister app is connected (announcement file +
+        interop handshake, see modules.interop). Shows each vehicle with its
+        costs for the SELECTED month plus the next open appointment — data
+        comes exclusively from the sister's ``interop_*`` views; nothing is
+        ever booked twice (the KFZ-Manager stays the single source for
+        vehicle costs).
+        """
+        from modules import interop
+
+        sister = self.ctx.sister
+        if sister.status != "aktiv" or sister.db_path is None:
+            return None
+        vehicles = interop.sister_vehicles(sister.db_path)
+        if not vehicles:
+            return None  # sister connected but empty — no dead card
+        costs = interop.vehicle_month_costs(sister.db_path, self._year, self._month)
+        appointments = interop.next_appointments(sister.db_path)
+
+        panel = QFrame()
+        panel.setObjectName("Card")
+        pl = QVBoxLayout(panel)
+        pl.setContentsMargins(22, 20, 22, 20)
+        pl.setSpacing(8)
+
+        head = QHBoxLayout()
+        head.addWidget(self._panel_title("Fahrzeuge (KFZ-Manager)"))
+        head.addStretch(1)
+        month_lbl = QLabel(f"{dates.month_name(self._month)} {self._year}")
+        month_lbl.setObjectName("Faint")
+        head.addWidget(month_lbl)
+        pl.addLayout(head)
+
+        total = 0
+        for vehicle in vehicles:
+            amount = costs.get(vehicle.id, 0)
+            total += amount
+            row = QHBoxLayout()
+            name = QLabel(vehicle.name)
+            name.setStyleSheet(f"color: {c['text']}; font-weight: 700;")
+            value = QLabel(format_eur(amount))
+            value.setStyleSheet(f"color: {c['text']}; font-weight: 700;")
+            value.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+            row.addWidget(name)
+            row.addStretch(1)
+            row.addWidget(value)
+            pl.addLayout(row)
+            # Next open appointment of this vehicle (soonest dated first).
+            next_appt = next((a for a in appointments
+                              if a.fahrzeug_id == vehicle.id), None)
+            if next_appt is not None:
+                bits = [next_appt.typ]
+                if next_appt.faellig_datum:
+                    bits.append(f"am {dates.format_date(next_appt.faellig_datum)}")
+                if next_appt.faellig_km is not None:
+                    bits.append(f"bei {next_appt.faellig_km:,} km".replace(",", "."))
+                appt_row = QHBoxLayout()
+                appt_lbl = QLabel("    Nächster Termin: " + " ".join(bits))
+                appt_lbl.setObjectName("Muted")
+                appt_row.addWidget(appt_lbl)
+                appt_row.addStretch(1)
+                pl.addLayout(appt_row)
+
+        # Context line: share of this month's household spending.
+        spending = ov.fixed_cents + ov.variable_cents
+        summary = QLabel(
+            f"Fahrzeugkosten gesamt: {format_eur(total)}"
+            + (f"  ·  {total / spending * 100:.0f} % deiner Monatsausgaben"
+               if spending > 0 and total > 0 else ""))
+        summary.setObjectName("Faint")
+        summary.setWordWrap(True)
+        pl.addWidget(summary)
+        return panel
+
     def _pots_panel(self, c) -> QWidget:
         """What the savings accounts' lump sums are made of (modules.pots)."""
         overview = pots_mod.build_overview(

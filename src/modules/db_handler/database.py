@@ -17,7 +17,12 @@ from modules.logging_setup import get_logger
 
 _log = get_logger("db")
 
-CURRENT_SCHEMA_VERSION = 6
+CURRENT_SCHEMA_VERSION = 7
+
+# Version of the interop contract this app provides for the sister app
+# (KFZ-Manager). Stored in interop_meta so the sister can handshake before
+# reading anything; spec lives in the KFZ-Manager repo's INTEROP.md.
+INTEROP_VERSION = 1
 
 
 class DatabaseCorruptError(RuntimeError):
@@ -55,6 +60,9 @@ WIPE_TABLES = (
     "pot_movements",
     "pots",
     "savings_accounts",
+    # v7: derived interop data — rebuilt from the tables above, so a full
+    # reset must clear it too (the sister app would otherwise read stale sums).
+    "interop_ausgaben_monat",
 )
 
 # Schema v2 (v1.6.0): the expense taxonomy was refined into finer, better-named
@@ -171,7 +179,17 @@ class Database:
                 "INSERT INTO schema_version (version) VALUES (?)",
                 (CURRENT_SCHEMA_VERSION,),
             )
-            self.conn.commit()
+        # Interop handshake data: exactly one row carrying the contract version.
+        irow = self.conn.execute(
+            "SELECT interop_version FROM interop_meta LIMIT 1").fetchone()
+        if irow is None:
+            self.conn.execute(
+                "INSERT INTO interop_meta (interop_version) VALUES (?)",
+                (INTEROP_VERSION,))
+        elif int(irow["interop_version"]) != INTEROP_VERSION:
+            self.conn.execute(
+                "UPDATE interop_meta SET interop_version = ?", (INTEROP_VERSION,))
+        self.conn.commit()
         _log.info("Database ready at %s (schema v%s)", self.path, CURRENT_SCHEMA_VERSION)
 
     def _migrate(self) -> None:
@@ -215,6 +233,7 @@ class Database:
         self._migrate_v4()
         self._migrate_v5()
         self._migrate_v6()
+        self._migrate_v7()
 
     def _migrate_v3(self) -> None:
         """Record schema v3 on an existing database (run once).
@@ -270,6 +289,20 @@ class Database:
         if row is None or row["version"] >= 6:
             return
         self.conn.execute("UPDATE schema_version SET version = 6")
+        self.conn.commit()
+
+    def _migrate_v7(self) -> None:
+        """Record schema v7 on an existing database (run once).
+
+        The v7 additions (``interop_meta`` and ``interop_ausgaben_monat`` for
+        the app-family integration) are whole new tables created by
+        ``schema.sql`` via ``CREATE ... IF NOT EXISTS`` on every start — only
+        the stored version needs bumping for the forward guard.
+        """
+        row = self.conn.execute("SELECT version FROM schema_version LIMIT 1").fetchone()
+        if row is None or row["version"] >= 7:
+            return
+        self.conn.execute("UPDATE schema_version SET version = 7")
         self.conn.commit()
 
     def wipe_financial_data(self) -> None:

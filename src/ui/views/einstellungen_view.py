@@ -58,6 +58,7 @@ class EinstellungenView(BaseView):
         layout.addWidget(self._update_card())
         layout.addWidget(self._import_card())
         layout.addWidget(self._backup_card())
+        layout.addWidget(self._interop_card())
         layout.addWidget(self._data_card())
         layout.addWidget(self._about_card())
         layout.addStretch(1)
@@ -317,6 +318,22 @@ class EinstellungenView(BaseView):
         QMessageBox.information(
             self, "Wiederhergestellt",
             f"Die Daten wurden auf den Stand vom {stamp} zurückgesetzt.")
+
+    # -- app family -----------------------------------------------------------
+    def _interop_card(self) -> QFrame:
+        card, layout = self._card("App-Familie")
+        status = QLabel(self.ctx.sister.message)
+        status.setWordWrap(True)
+        layout.addWidget(status)
+        hint = QLabel(
+            "Der HaushaltsManager stellt dem KFZ-Manager seine Monatsausgaben "
+            "über eine schreibgeschützte Interop-Schicht bereit und zeigt "
+            "dessen Fahrzeuge auf dem Dashboard — Fahrzeugkosten werden dabei "
+            "nie doppelt gebucht, der KFZ-Manager bleibt die alleinige Quelle.")
+        hint.setObjectName("Faint")
+        hint.setWordWrap(True)
+        layout.addWidget(hint)
+        return card
 
     # -- data ---------------------------------------------------------------
     def _data_card(self) -> QFrame:

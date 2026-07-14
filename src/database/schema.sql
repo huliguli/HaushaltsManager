@@ -227,6 +227,24 @@ CREATE TABLE IF NOT EXISTS pot_movements (
     FOREIGN KEY (pot_id) REFERENCES pots(id) ON DELETE CASCADE
 );
 
+-- --- Interop (App-Familie, schema v7) ---------------------------------------
+-- Contract instead of table access: the sister app (KFZ-Manager) reads ONLY
+-- interop_meta and interop_ausgaben_monat below — never the private tables.
+-- interop_ausgaben_monat is a MATERIALISED table (not a view): the monthly
+-- total needs the recurring-expense and fixed-cost logic that lives in Python
+-- (modules.budget / repositories), so modules.interop rebuilds it at startup
+-- and after every data change. Spec: the KFZ-Manager repo's INTEROP.md.
+CREATE TABLE IF NOT EXISTS interop_meta (
+    interop_version INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS interop_ausgaben_monat (
+    jahr       INTEGER NOT NULL,
+    monat      INTEGER NOT NULL,               -- 1-12
+    summe_cent INTEGER NOT NULL DEFAULT 0,     -- Fixkosten + variable Ausgaben
+    PRIMARY KEY (jahr, monat)
+);
+
 -- --- Indexes ---------------------------------------------------------------
 CREATE INDEX IF NOT EXISTS idx_var_date     ON variable_expenses(date);
 CREATE INDEX IF NOT EXISTS idx_varincome_date ON variable_income(date);
