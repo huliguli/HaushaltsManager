@@ -223,5 +223,11 @@ GitHub.
 
 ## Lizenz
 
-Privates Projekt. Verwendet **PyQt6** (GPL v3). Eine kommerzielle Weitergabe ist
-nicht vorgesehen.
+**GNU General Public License v3.0** — der vollständige Text steht in
+[`LICENSE`](./LICENSE).
+
+Der HaushaltsManager baut auf **PyQt6** auf, das unter `GPL-3.0-only` steht.
+Da dieses Repository öffentlich ist und Releases veröffentlicht werden, ist das
+eine Weitergabe im Sinne der GPL — das Programm steht deshalb selbst unter
+GPLv3. Wer eine Kopie erhält, darf sie nutzen, weitergeben und verändern,
+solange er dieselbe Lizenz und den Quelltext mitgibt.

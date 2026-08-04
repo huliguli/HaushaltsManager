@@ -49,7 +49,10 @@ class EinstellungenView(BaseView):
         scroll.setStyleSheet("QScrollArea { background: transparent; border: none; }")
         outer.addWidget(scroll)
         container = QWidget()
-        container.setStyleSheet("background: transparent;")
+        container.setObjectName("ScrollBody")
+        # Scoped by object name on purpose: a selector-less rule
+        # would cascade onto every card inside and blank its fill.
+        container.setStyleSheet("QWidget#ScrollBody { background: transparent; }")
         scroll.setWidget(container)
 
         layout = QVBoxLayout(container)

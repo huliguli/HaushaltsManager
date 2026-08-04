@@ -139,7 +139,10 @@ class _CalcTab(QWidget):
         results_scroll.setFrameShape(QFrame.Shape.NoFrame)
         results_scroll.setStyleSheet("QScrollArea { background: transparent; border: none; }")
         results_container = QWidget()
-        results_container.setStyleSheet("background: transparent;")
+        results_container.setObjectName("ScrollBody")
+        # Scoped by object name on purpose: a selector-less rule
+        # would cascade onto every card inside and blank its fill.
+        results_container.setStyleSheet("QWidget#ScrollBody { background: transparent; }")
         self.results = QVBoxLayout(results_container)
         # Bottom inset so the amortisation table never sits flush against the
         # window edge (it stretches to fill the results column).

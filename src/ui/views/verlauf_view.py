@@ -53,7 +53,10 @@ class VerlaufView(BaseView):
         outer.addWidget(scroll)
 
         container = QWidget()
-        container.setStyleSheet("background: transparent;")
+        container.setObjectName("ScrollBody")
+        # Scoped by object name on purpose: a selector-less rule
+        # would cascade onto every card inside and blank its fill.
+        container.setStyleSheet("QWidget#ScrollBody { background: transparent; }")
         self._body = QVBoxLayout(container)
         self._body.setContentsMargins(30, 26, 30, 26)
         self._body.setSpacing(18)

@@ -67,7 +67,10 @@ class DashboardView(BaseView):
         outer.addWidget(scroll)
 
         self._container = QWidget()
-        self._container.setStyleSheet("background: transparent;")
+        self._container.setObjectName("ScrollBody")
+        # Scoped by object name on purpose: a selector-less rule
+        # would cascade onto every card inside and blank its fill.
+        self._container.setStyleSheet("QWidget#ScrollBody { background: transparent; }")
         self._body = QVBoxLayout(self._container)
         self._body.setContentsMargins(30, 26, 30, 26)
         self._body.setSpacing(18)

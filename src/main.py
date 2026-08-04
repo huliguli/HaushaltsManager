@@ -104,6 +104,8 @@ def main() -> int:
     if os.environ.get("HM_THEME") in ("light", "dark"):
         ctx.config._data["theme"] = os.environ["HM_THEME"]
 
+    # Tabular figures for the whole app, so amounts line up in every column.
+    app.setFont(theme.app_font())
     app.setStyleSheet(theme.build_qss(ctx.colors))
     window = MainWindow(ctx)
     window.show()

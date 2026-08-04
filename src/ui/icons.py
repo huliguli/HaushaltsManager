@@ -29,6 +29,9 @@ _PATHS: dict[str, str] = {
     "arrow_right": '<path d="M5 12h14"/><path d="M13 6l6 6-6 6"/>',
     "arrow_down": '<path d="M12 5v14"/><path d="M6 13l6 6 6-6"/>',
     "chevron_down": '<path d="M6 9l6 6 6-6"/>',
+    "chevron_up": '<path d="M18 15l-6-6-6 6"/>',
+    # Indeterminate checkbox state.
+    "minus": '<path d="M5 12h14"/>',
     "chevron_left": '<path d="M15 18l-6-6 6-6"/>',
     "chevron_right": '<path d="M9 18l6-6-6-6"/>',
     "chart": '<path d="M3 3v18h18"/><rect x="7" y="11" width="3" height="6" rx="0.5"/><rect x="12" y="7" width="3" height="10" rx="0.5"/><rect x="17" y="13" width="3" height="4" rx="0.5"/>',

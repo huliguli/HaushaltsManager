@@ -19,10 +19,6 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtGui import QColor
 
-# Shared with theme.py so card stripes and the card frame round identically.
-from ui.theme import RADIUS_CARD
-
-
 def clear_layout(layout: QLayout) -> None:
     """Remove and delete every item in a layout (for full re-renders)."""
     while layout.count():
@@ -89,25 +85,27 @@ def muted(text: str) -> QLabel:
 
 
 class StatCard(QFrame):
-    """A dashboard summary card: title, big value, small hint, accent stripe."""
+    """A summary card: caption, leading number, delta line, hint.
 
-    def __init__(self, title: str, accent: str = "#2f6bd8") -> None:
+    v4.0 dropped the 5px coloured stripe and the drop shadow. Four cards with
+    four different stripe colours turned the top of every view into confetti,
+    and the shadow fought the flat-paper look; separation now comes from the
+    card fill plus its hairline. The ``accent`` is still accepted and stored —
+    it is the series colour a card can draw a trend line in.
+    """
+
+    def __init__(self, title: str, accent: str = "") -> None:
         super().__init__()
         self.setObjectName("Card")
-        self.setMinimumHeight(108)
+        self.setMinimumHeight(104)
         self._accent = accent
 
         root = QHBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
 
-        self._stripe = QFrame()
-        self._stripe.setFixedWidth(5)
-        self._stripe.setStyleSheet(self._stripe_qss(accent))
-        root.addWidget(self._stripe)
-
         body = QVBoxLayout()
-        body.setContentsMargins(18, 16, 18, 16)
+        body.setContentsMargins(18, 15, 18, 15)
         body.setSpacing(5)
         self._title = QLabel(title)
         self._title.setObjectName("CardTitle")
@@ -126,8 +124,6 @@ class StatCard(QFrame):
         body.addStretch(1)
         root.addLayout(body, 1)
 
-        soft_shadow(self)
-
     def set_value(self, text: str, color: str | None = None) -> None:
         self._value.setText(text)
         if color:
@@ -145,16 +141,17 @@ class StatCard(QFrame):
         self._delta.setStyleSheet(f"color: {color}; font-size: 12px; font-weight: 600;")
         self._delta.setVisible(True)
 
-    @staticmethod
-    def _stripe_qss(color: str) -> str:
-        # Match the card's corner radius exactly so the stripe and card edge align
-        # (set in one place so __init__ and set_accent can never drift apart).
-        return (f"background: {color}; border-top-left-radius: {RADIUS_CARD}px; "
-                f"border-bottom-left-radius: {RADIUS_CARD}px;")
-
     def set_accent(self, color: str) -> None:
+        """Record the card's series colour (no longer drawn as a stripe).
+
+        Kept so existing call sites keep working after the stripe was removed;
+        the value's own colour carries the money direction (see set_value).
+        """
         self._accent = color
-        self._stripe.setStyleSheet(self._stripe_qss(color))
+
+    @property
+    def accent(self) -> str:
+        return self._accent
 
 
 class Pill(QLabel):

@@ -1,116 +1,143 @@
-"""Design system: colour tokens and the application style sheet (QSS).
+"""Design system: colour tokens, type scale and the application style sheet.
 
-The whole look is driven from two semantic colour dictionaries (light / dark)
-plus a few shared scale constants, so a theme switch is one ``setStyleSheet``
-call and there is a single place to tune the brand. Values follow the project's
-design-token principles: named decisions only, semantic over raw, WCAG AA
-contrast for text (>=4.5:1) and UI borders (>=3:1), restrained palette, visible
-focus rings. The brand is the navy + blue of the Ring-Haus app icon.
+Direction "Kontoblatt" (v4.0): a quiet sheet of paper with the numbers in front,
+closer to a well-set bank statement than to a SaaS dashboard.
+
+Three rules drive every value below.
+
+1. **Two designed themes, not one recoloured.** The light theme is warm-neutral
+   paper; the dark theme is neutral graphite. Neither has a navy cast, and the
+   sidebar belongs to the page in BOTH — the near-black sidebar that used to sit
+   next to white content was the single strongest ageing signal.
+2. **One accent, and money owns its own colours.** The brand accent is a deep
+   petrol; green and red are reserved exclusively for the direction of an amount
+   and are never used for branding or generic state. Colour is never the only
+   channel — a sign or a column carries the same information (WCAG 1.4.1).
+3. **Depth from surface steps and hairlines, never shadows.** Qt silently drops
+   ``box-shadow`` from a style sheet, so anything relying on it would just look
+   flat with no warning.
+
+Contrast targets: >=4.5:1 for text, >=3:1 for control borders and focus rings.
+``tests/test_theme_contrast.py`` checks the pairs mechanically.
 """
 
 from __future__ import annotations
 
-# --- Shared scale (Primitive layer) ---------------------------------------
+# --- Type scale -------------------------------------------------------------
+# Segoe UI Variable is the Windows 11 system family; the fallbacks keep older
+# Windows and the macOS build readable. Weights stay in 400/500/600 — the old
+# theme jumped to 700 for every heading, which is what made the UI shout.
 FONT_STACK = '"Segoe UI Variable Text", "Segoe UI", "Inter", system-ui, sans-serif'
 FONT_HEADING = '"Segoe UI Variable Display", "Segoe UI Semibold", "Segoe UI", sans-serif'
-RADIUS_CARD = 16
-RADIUS_CONTROL = 10
+
+FONT_SIZES = {
+    "label": 11,     # all-caps captions (the only place letter-spacing is used)
+    "small": 12,     # hints, secondary rows
+    "table": 13,     # table cells and list rows
+    "body": 14,      # default
+    "card": 16,      # card titles
+    "title": 20,     # view titles
+    "hero": 30,      # the one leading number per card
+}
+
+RADIUS_CARD = 10
+RADIUS_CONTROL = 7
+# 4px base grid; six steps is enough for the whole app.
+SPACE = (4, 8, 12, 16, 24, 32)
 
 # --- Semantic colour tokens ------------------------------------------------
+# Key names are deliberately unchanged from v3.x so every view keeps working;
+# only the values moved to the new direction.
 LIGHT = {
-    "bg": "#f5f7fb",
-    "bg_subtle": "#eef2f8",
+    "bg": "#f4f3f0",              # warm paper, no blue cast
+    "bg_subtle": "#efeeea",
     "surface": "#ffffff",
-    "surface_2": "#f3f6fb",
-    "surface_3": "#e9eef6",
-    "border": "#e4e9f1",
-    "border_strong": "#868fa1",   # control border, >=3:1 on surface (WCAG 1.4.11)
-    "text": "#101729",
-    "text_muted": "#566173",
-    "text_faint": "#667086",      # caption/hint text, >=4.5:1 on surface and bg
-    "primary": "#2f6cdf",
-    "primary_hover": "#2659c2",
-    "primary_press": "#1f4ca8",
-    "primary_soft": "#e7effd",
-    # Filled-primary-button fill (white label needs >=4.5:1): equals the accent
-    # in light mode, but kept separate so dark mode can darken the button without
-    # dulling the brighter accent used for links/tabs/focus on dark surfaces.
-    "primary_btn": "#2f6cdf",
-    "primary_btn_hover": "#2659c2",
-    "primary_btn_press": "#1f4ca8",
+    "surface_2": "#faf9f7",
+    "surface_3": "#eeece7",
+    "border": "#e0ddd6",          # hairline — the only separator
+    # Control border: >=3:1 on EVERY surface it can sit on, incl. surface_3
+    # (WCAG 1.4.11). The lighter warm grey this started as failed at 2.65:1.
+    "border_strong": "#8c867c",
+    "text": "#1b1a18",
+    "text_muted": "#5c584f",
+    "text_faint": "#6f6a62",      # captions, >=4.5:1 on surface and bg
+    # Brand accent: deep petrol. Explicitly not blue — blue is the default of
+    # administrative software and a main reason the old UI read as dated.
+    "primary": "#125e5b",
+    "primary_hover": "#0e4c4a",
+    "primary_press": "#0a3d3b",
+    "primary_soft": "#e1eeed",
+    "primary_btn": "#125e5b",
+    "primary_btn_hover": "#0e4c4a",
+    "primary_btn_press": "#0a3d3b",
     "on_primary": "#ffffff",
-    "focus": "#2f6cdf",
-    "sidebar": "#0d1526",
-    "sidebar_2": "#101a31",
-    "sidebar_text": "#9fabc2",
-    "sidebar_text_active": "#ffffff",
-    "sidebar_active": "#1b2942",
-    "sidebar_accent": "#4d86f5",
-    # Traffic-light / semantic. Foregrounds are dark enough to clear 4.5:1 both
-    # as value text on white surface AND as pill text on their *_soft background.
-    "green": "#0f6e3d",
-    "green_soft": "#e1f4ea",
-    "amber": "#94590b",
-    "amber_soft": "#fbeed8",
-    "red": "#bf352b",
-    "red_soft": "#fbe6e4",
-    "blue": "#205bc6",
-    "blue_soft": "#e7effd",
-    "grey": "#566173",
-    "grey_soft": "#eef1f6",
-    # Chart slice palette (cohesive, AA-distinct)
-    # Cyclic donut/legend palette. Widened to 14 well-separated hues so a
-    # month with many of the finer expense categories still gets distinct
-    # slices; the legend additionally shows name + % so colour is never the
-    # sole differentiator (WCAG 1.4.1).
-    "chart": ["#2f6cdf", "#1a9d5a", "#c47711", "#d8453b", "#7c5cff", "#0ea5b7",
-              "#e0699a", "#7a8699", "#0f8a6e", "#9a8410", "#3f4fb0", "#b5409a",
-              "#8a5a2b", "#5d9e2f"],
+    "focus": "#125e5b",
+    # Sidebar is part of the paper, separated by a hairline only.
+    "sidebar": "#eae8e3",
+    "sidebar_2": "#e1dfd8",
+    "sidebar_text": "#4a463f",
+    "sidebar_text_active": "#0e4c4a",
+    "sidebar_active": "#ffffff",
+    "sidebar_accent": "#125e5b",
+    # Money semantics. Foregrounds clear 4.5:1 on surface AND on their *_soft.
+    "green": "#1a6b41",
+    "green_soft": "#e3f1e8",
+    "amber": "#845410",
+    "amber_soft": "#f6ebd8",
+    "red": "#a33228",
+    "red_soft": "#f8e6e3",
+    "blue": "#1f5a86",
+    "blue_soft": "#e4eef6",
+    "grey": "#5c584f",
+    "grey_soft": "#eeece7",
+    # Categorical series: muted and print-like, distinct from the accent so a
+    # chart slice never reads as "brand". Eight hues — beyond that a breakdown
+    # should roll up into "Sonstige" rather than grow more colours.
+    "chart": ["#125e5b", "#845410", "#44578a", "#75405c", "#3d6b4a", "#8f5c38",
+              "#565377", "#2b6d73"],
 }
 
 DARK = {
-    "bg": "#0c121e",
-    "bg_subtle": "#0f1626",
-    "surface": "#161e2e",
-    "surface_2": "#1d2738",
-    "surface_3": "#273246",
-    "border": "#293449",
-    "border_strong": "#586c98",   # control border, >=3:1 on surface (WCAG 1.4.11)
-    "text": "#e9eef7",
-    "text_muted": "#9aa6bb",
-    "text_faint": "#7e8ca6",      # caption/hint text, >=4.5:1 on surface
-    "primary": "#5088f5",         # bright accent for links/tabs/focus on dark surface
-    "primary_hover": "#6296f7",
-    "primary_press": "#3b6fe0",
-    "primary_soft": "#1a2742",
-    # Darker filled-button fill so white labels clear 4.5:1 (the bright accent
-    # above only reaches 3.4:1 against white).
-    "primary_btn": "#3367dc",
-    "primary_btn_hover": "#3a6ee2",
-    "primary_btn_press": "#2f63d4",
-    "on_primary": "#ffffff",
-    "focus": "#5088f5",
-    "sidebar": "#080d17",
-    "sidebar_2": "#0c1320",
-    "sidebar_text": "#93a0b8",
-    "sidebar_text_active": "#ffffff",
-    "sidebar_active": "#19243a",
-    "sidebar_accent": "#5088f5",
-    "green": "#34c277",
-    "green_soft": "#10301f",
-    "amber": "#e0a23c",
-    "amber_soft": "#33260f",
-    "red": "#ec5f55",
-    "red_soft": "#371b19",
-    "blue": "#5088f5",
-    "blue_soft": "#17233b",
-    "grey": "#8b98af",            # lightened so grey pill text clears 4.5:1 on grey_soft
-    "grey_soft": "#222d40",
-    # Cyclic donut/legend palette (dark theme) — same 14-hue spread, brighter
-    # variants so each slice reads on the dark card surface.
-    "chart": ["#5088f5", "#34c277", "#e0a23c", "#ec5f55", "#9d83ff", "#2bc2d4",
-              "#f07cab", "#74819a", "#2bb58f", "#cbb43e", "#6f7ee0", "#d765bd",
-              "#bd8a5a", "#86c450"],
+    "bg": "#141618",              # neutral graphite, never pure black
+    "bg_subtle": "#101214",
+    "surface": "#1d2023",
+    "surface_2": "#23272a",
+    "surface_3": "#2c3033",
+    "border": "#31363a",
+    # >=3:1 on every surface incl. surface_3 (WCAG 1.4.11).
+    "border_strong": "#787f84",
+    "text": "#e9e8e4",
+    "text_muted": "#a8a7a1",
+    "text_faint": "#918f89",
+    "primary": "#59b3ac",
+    "primary_hover": "#68bfb8",
+    "primary_press": "#4a9d97",
+    "primary_soft": "#17322f",
+    # On dark the accent is bright, so the filled button carries DARK text —
+    # white on #59b3ac would only reach ~2.4:1.
+    "primary_btn": "#59b3ac",
+    "primary_btn_hover": "#68bfb8",
+    "primary_btn_press": "#4a9d97",
+    "on_primary": "#0c1a19",
+    "focus": "#59b3ac",
+    "sidebar": "#101214",
+    "sidebar_2": "#191c1f",
+    "sidebar_text": "#a09f99",
+    "sidebar_text_active": "#7fc8c2",
+    "sidebar_active": "#1d2023",
+    "sidebar_accent": "#59b3ac",
+    "green": "#5cc088",
+    "green_soft": "#13291d",
+    "amber": "#d9a441",
+    "amber_soft": "#2c2314",
+    "red": "#e8776c",
+    "red_soft": "#2e1a18",
+    "blue": "#6ba8d8",
+    "blue_soft": "#152431",
+    "grey": "#a8a7a1",
+    "grey_soft": "#272b2e",
+    "chart": ["#59b3ac", "#d9a441", "#8098d4", "#c78fa8", "#7fbb92", "#d09f74",
+              "#a09dc4", "#6bb8bf"],
 }
 
 # Map a traffic-light key to its (foreground, soft-background) token names.
@@ -125,6 +152,31 @@ AMPEL = {
 
 def palette(theme: str) -> dict:
     return DARK if theme == "dark" else LIGHT
+
+
+def app_font():
+    """The application base font, with TABULAR figures switched on.
+
+    Segoe UI Variable ships a narrow "1" (5.0px vs 8.0px for every other digit
+    at 14px), so amounts in a column visibly jitter and the eye cannot compare
+    them. The OpenType ``tnum`` feature gives every digit the same advance.
+
+    Setting this once on the QApplication is enough: the feature survives the
+    global ``font-family``/``font-size`` rule in :func:`build_qss` (verified),
+    so it reaches every label and table cell without per-widget work.
+    Requires Qt >= 6.7 for ``QFont.setFeature``; older builds simply keep
+    proportional digits.
+    """
+    from PyQt6.QtGui import QFont
+
+    font = QFont()
+    font.setFamilies(["Segoe UI Variable Text", "Segoe UI", "Inter"])
+    font.setPixelSize(FONT_SIZES["body"])
+    try:
+        font.setFeature(QFont.Tag("tnum"), 1)
+    except (AttributeError, TypeError):  # pragma: no cover - older Qt
+        pass
+    return font
 
 
 def ampel_color(key: str, colors: dict) -> str:
@@ -152,13 +204,15 @@ def _relative_luminance(hex_color: str) -> float:
     return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b)
 
 
-def on_color(hex_color: str) -> str:
-    """Return black or white — whichever reads with more contrast on the colour.
+def contrast_ratio(a: str, b: str) -> float:
+    """WCAG contrast ratio between two hex colours (1.0 - 21.0)."""
+    la, lb = _relative_luminance(a), _relative_luminance(b)
+    hi, lo = max(la, lb), min(la, lb)
+    return (hi + 0.05) / (lo + 0.05)
 
-    Used for solid coloured badges (e.g. the car-feasibility banner) so the label
-    stays legible whether the fill is a dark (light-theme) or bright (dark-theme)
-    semantic colour, instead of forcing white onto a light fill.
-    """
+
+def on_color(hex_color: str) -> str:
+    """Return black or white — whichever reads with more contrast on the colour."""
     lum = _relative_luminance(hex_color)
     white_ratio = 1.05 / (lum + 0.05)
     black_ratio = (lum + 0.05) / 0.05
@@ -168,15 +222,34 @@ def on_color(hex_color: str) -> str:
 def build_qss(c: dict) -> str:
     """Build the application-wide style sheet from a colour dictionary."""
     from ui import icons
-    # A chevron for the combo-box drop-down (Qt cannot embed it inline); falls
-    # back to no arrow rule if the image can't be materialised.
-    _arrow = icons.stylesheet_image_path("chevron_down", c["text_muted"], 28)
-    arrow_rule = (f"QComboBox::down-arrow {{ image: url({_arrow}); "
-                  f"width: 13px; height: 13px; }}" if _arrow else "")
+    s = FONT_SIZES
+
+    def img(name: str, color: str, size: int = 28) -> str:
+        return icons.stylesheet_image_path(name, color, size)
+
+    # Qt cannot embed images inline, so glyphs are materialised to PNG once.
+    # Every rule degrades gracefully to "no image" if that ever fails.
+    arrow = img("chevron_down", c["text_muted"], 28)
+    arrow_rule = (f"QComboBox::down-arrow, QDateEdit::down-arrow {{ image: url({arrow}); "
+                  f"width: 13px; height: 13px; }}" if arrow else "")
+    tick = img("check", c["on_primary"], 24)
+    tick_rule = (f"QCheckBox::indicator:checked {{ image: url({tick}); }}"
+                 if tick else "")
+    dash = img("minus", c["on_primary"], 24)
+    dash_rule = (f"QCheckBox::indicator:indeterminate {{ image: url({dash}); }}"
+                 if dash else "")
+    up = img("chevron_up", c["text_muted"], 24)
+    down = img("chevron_down", c["text_muted"], 24)
+    spin_rule = (
+        f"QSpinBox::up-arrow, QDoubleSpinBox::up-arrow {{ image: url({up}); "
+        f"width: 11px; height: 11px; }}"
+        f"QSpinBox::down-arrow, QDoubleSpinBox::down-arrow {{ image: url({down}); "
+        f"width: 11px; height: 11px; }}" if up and down else "")
+
     return f"""
 * {{
     font-family: {FONT_STACK};
-    font-size: 14px;
+    font-size: {s['body']}px;
     color: {c['text']};
 }}
 QWidget#Root, QStackedWidget, QMainWindow {{ background: {c['bg']}; }}
@@ -185,137 +258,197 @@ QToolTip {{
     color: {c['text']};
     border: 1px solid {c['border_strong']};
     padding: 6px 10px;
-    border-radius: 8px;
+    border-radius: {RADIUS_CONTROL}px;
 }}
 
 /* ---- Dialogs follow the app theme (not the OS dark/light mode) ---- */
 QDialog, QMessageBox, QInputDialog {{ background: {c['bg']}; }}
 QMessageBox QLabel, QInputDialog QLabel {{ color: {c['text']}; background: transparent; }}
 
-/* ---- Sidebar ---- */
-QWidget#Sidebar {{ background: {c['sidebar']}; border: none; }}
-QLabel#Brand {{ color: {c['sidebar_text_active']}; font-family: {FONT_HEADING};
-    font-size: 19px; font-weight: 700; padding: 2px 6px; }}
-QLabel#BrandSub {{ color: {c['sidebar_text']}; font-size: 10px; letter-spacing: 1.6px; font-weight: 600; }}
+/* ---- Sidebar: part of the page, separated by a hairline ---- */
+QWidget#Sidebar {{
+    background: {c['sidebar']};
+    border: none;
+    border-right: 1px solid {c['border']};
+}}
+QLabel#Brand {{ color: {c['text']}; font-family: {FONT_HEADING};
+    font-size: {s['card']}px; font-weight: 600; padding: 2px 6px; }}
+QLabel#BrandSub {{ color: {c['text_faint']}; font-size: {s['label']}px;
+    letter-spacing: 1.2px; font-weight: 600; }}
 QPushButton#NavButton {{
     color: {c['sidebar_text']}; background: transparent;
-    border: none; border-left: 3px solid transparent;
-    border-radius: 10px; padding: 11px 13px; text-align: left;
-    font-size: 14px; font-weight: 500;
+    border: 1px solid transparent;
+    border-radius: {RADIUS_CONTROL}px; padding: 9px 12px; text-align: left;
+    font-size: {s['table']}px; font-weight: 500;
 }}
-QPushButton#NavButton:hover {{ background: {c['sidebar_2']}; color: {c['sidebar_text_active']}; }}
+QPushButton#NavButton:hover {{ background: {c['sidebar_2']}; color: {c['text']}; }}
 QPushButton#NavButton:checked {{
     background: {c['sidebar_active']}; color: {c['sidebar_text_active']};
-    border-left: 3px solid {c['sidebar_accent']}; font-weight: 600;
+    border: 1px solid {c['border']}; font-weight: 600;
 }}
-/* Keyboard focus must be visible (WCAG 2.4.7): highlight the focused nav item. */
-QPushButton#NavButton:focus {{
-    background: {c['sidebar_active']}; color: {c['sidebar_text_active']};
-    border-left: 3px solid {c['sidebar_accent']};
-}}
+/* Focus must be visible (WCAG 2.4.7) but must NOT look like the selected item —
+   the old theme styled :focus exactly like :checked, so two entries always
+   appeared active at once. A ring says "keyboard is here", a filled pill says
+   "this is the open view". */
+QPushButton#NavButton:focus {{ border: 1px solid {c['focus']}; }}
 
-/* ---- Cards & panels ---- */
+/* ---- Cards & panels: hairline only, no shadow (Qt drops box-shadow) ---- */
 QFrame#Card {{
     background: {c['surface']}; border: 1px solid {c['border']};
     border-radius: {RADIUS_CARD}px;
 }}
 QFrame#Panel {{
     background: {c['surface_2']}; border: 1px solid {c['border']};
-    border-radius: 12px;
+    border-radius: {RADIUS_CARD}px;
 }}
-QLabel#CardTitle {{ color: {c['text_muted']}; font-size: 11px; font-weight: 700;
-    text-transform: uppercase; letter-spacing: 0.7px; }}
-QLabel#CardValue {{ font-family: {FONT_HEADING}; font-size: 27px; font-weight: 700; color: {c['text']}; }}
-QLabel#CardHint {{ color: {c['text_faint']}; font-size: 12px; }}
-QLabel#H1 {{ font-family: {FONT_HEADING}; font-size: 24px; font-weight: 700; }}
-QLabel#H2 {{ font-family: {FONT_HEADING}; font-size: 17px; font-weight: 700; }}
+QLabel#CardTitle {{ color: {c['text_faint']}; font-size: {s['label']}px; font-weight: 600;
+    text-transform: uppercase; letter-spacing: 0.8px; }}
+QLabel#CardValue {{ font-family: {FONT_HEADING}; font-size: {s['hero']}px;
+    font-weight: 600; color: {c['text']}; }}
+QLabel#CardHint {{ color: {c['text_faint']}; font-size: {s['small']}px; }}
+QLabel#H1 {{ font-family: {FONT_HEADING}; font-size: {s['title']}px; font-weight: 600; }}
+QLabel#H2 {{ font-family: {FONT_HEADING}; font-size: {s['card']}px; font-weight: 600; }}
 QLabel#Muted {{ color: {c['text_muted']}; }}
-QLabel#Faint {{ color: {c['text_faint']}; font-size: 12px; }}
-/* Inline validation errors: the theme red clears AA on both surfaces and, unlike
-   a hard-coded hex, re-colours with the theme (light >=5.5:1, dark >=5:1). */
-QLabel#ErrorText {{ color: {c['red']}; font-size: 12px; }}
-QLabel#FieldLabel {{ color: {c['text_muted']}; font-size: 12px; font-weight: 600; }}
+QLabel#Faint {{ color: {c['text_faint']}; font-size: {s['small']}px; }}
+QLabel#ErrorText {{ color: {c['red']}; font-size: {s['small']}px; }}
+QLabel#FieldLabel {{ color: {c['text_muted']}; font-size: {s['small']}px; font-weight: 600; }}
 
 /* ---- Buttons ---- */
 QPushButton {{
-    background: {c['surface_2']}; color: {c['text']};
+    background: {c['surface']}; color: {c['text']};
     border: 1px solid {c['border_strong']}; border-radius: {RADIUS_CONTROL}px;
-    padding: 9px 16px; font-weight: 600; min-height: 18px;
+    padding: 8px 15px; font-weight: 500; min-height: 18px;
 }}
-QPushButton:hover {{ background: {c['surface_3']}; }}
+QPushButton:hover {{ background: {c['surface_2']}; }}
 QPushButton:pressed {{ background: {c['surface_3']}; }}
 QPushButton:focus {{ border: 1px solid {c['focus']}; outline: none; }}
-QPushButton:disabled {{ color: {c['text_faint']}; background: {c['surface_2']}; border-color: {c['border']}; }}
-QPushButton#Primary {{ background: {c['primary_btn']}; color: {c['on_primary']}; border: 1px solid {c['primary_btn']}; }}
-QPushButton#Primary:hover {{ background: {c['primary_btn_hover']}; border-color: {c['primary_btn_hover']}; }}
-QPushButton#Primary:pressed {{ background: {c['primary_btn_press']}; border-color: {c['primary_btn_press']}; }}
-QPushButton#Ghost {{ background: transparent; border: 1px solid {c['border_strong']}; color: {c['text']}; }}
-QPushButton#Ghost:hover {{ background: {c['surface_2']}; border-color: {c['border_strong']}; }}
-QPushButton#Danger {{ color: {c['red']}; border: 1px solid {c['border_strong']}; background: transparent; }}
+QPushButton:disabled {{ color: {c['text_faint']}; background: {c['surface_2']};
+    border-color: {c['border']}; }}
+QPushButton#Primary {{ background: {c['primary_btn']}; color: {c['on_primary']};
+    border: 1px solid {c['primary_btn']}; font-weight: 600; }}
+QPushButton#Primary:hover {{ background: {c['primary_btn_hover']};
+    border-color: {c['primary_btn_hover']}; }}
+QPushButton#Primary:pressed {{ background: {c['primary_btn_press']};
+    border-color: {c['primary_btn_press']}; }}
+QPushButton#Primary:disabled {{ background: {c['surface_3']}; color: {c['text_faint']};
+    border-color: {c['border']}; }}
+QPushButton#Ghost {{ background: transparent; border: 1px solid {c['border_strong']};
+    color: {c['text']}; }}
+QPushButton#Ghost:hover {{ background: {c['surface_2']}; }}
+QPushButton#Danger {{ color: {c['red']}; border: 1px solid {c['border_strong']};
+    background: transparent; }}
 QPushButton#Danger:hover {{ background: {c['red_soft']}; border-color: {c['red']}; }}
-QPushButton#Link {{ background: transparent; border: none; color: {c['primary']}; padding: 4px; font-weight: 600; }}
+QPushButton#Link {{ background: transparent; border: none; color: {c['primary']};
+    padding: 4px; font-weight: 600; }}
 QPushButton#Link:hover {{ color: {c['primary_hover']}; text-decoration: underline; }}
 
 /* ---- Inputs ---- */
 QLineEdit, QComboBox, QDateEdit, QSpinBox, QDoubleSpinBox, QTextEdit, QPlainTextEdit {{
     background: {c['surface']}; border: 1px solid {c['border_strong']};
-    border-radius: {RADIUS_CONTROL}px; padding: 8px 11px;
+    border-radius: {RADIUS_CONTROL}px; padding: 7px 10px;
     selection-background-color: {c['primary']}; selection-color: {c['on_primary']};
 }}
-QLineEdit:hover, QComboBox:hover {{ border-color: {c['text_faint']}; }}
+QLineEdit:hover, QComboBox:hover, QDateEdit:hover,
+QSpinBox:hover, QDoubleSpinBox:hover {{ border-color: {c['text_faint']}; }}
 QLineEdit:focus, QComboBox:focus, QDateEdit:focus, QSpinBox:focus,
-QDoubleSpinBox:focus, QTextEdit:focus, QPlainTextEdit:focus {{ border: 1px solid {c['focus']}; }}
-QComboBox::drop-down {{ border: none; width: 24px; }}
+QDoubleSpinBox:focus, QTextEdit:focus, QPlainTextEdit:focus {{
+    border: 1px solid {c['focus']}; }}
+QLineEdit:disabled, QComboBox:disabled, QSpinBox:disabled, QDoubleSpinBox:disabled {{
+    background: {c['surface_2']}; color: {c['text_faint']}; border-color: {c['border']}; }}
+QComboBox::drop-down, QDateEdit::drop-down {{ border: none; width: 24px; }}
 {arrow_rule}
-/* Combo boxes used as table cell-widgets need tight vertical padding and an
-   explicit text colour, otherwise the current item is clipped to nothing in
-   the short table rows. */
 QComboBox#CellCombo {{ padding: 2px 9px; color: {c['text']}; background: {c['surface_2']}; }}
 QComboBox QAbstractItemView {{
     background: {c['surface']}; border: 1px solid {c['border_strong']};
-    border-radius: 8px; selection-background-color: {c['primary_soft']};
+    border-radius: {RADIUS_CONTROL}px; selection-background-color: {c['primary_soft']};
     selection-color: {c['text']}; outline: none; padding: 4px;
 }}
+
+/* Spin buttons: stacked, borderless, own chevrons. The Qt default drew two
+   square boxes with sharp corners inside a rounded field. */
+QSpinBox::up-button, QDoubleSpinBox::up-button,
+QSpinBox::down-button, QDoubleSpinBox::down-button {{
+    subcontrol-origin: border; border: none; background: transparent;
+    width: 20px; margin-right: 3px;
+}}
+QSpinBox::up-button, QDoubleSpinBox::up-button {{ subcontrol-position: top right; }}
+QSpinBox::down-button, QDoubleSpinBox::down-button {{ subcontrol-position: bottom right; }}
+QSpinBox::up-button:hover, QDoubleSpinBox::up-button:hover,
+QSpinBox::down-button:hover, QDoubleSpinBox::down-button:hover {{
+    background: {c['surface_3']}; border-radius: 4px; }}
+{spin_rule}
+
+/* ---- Check boxes: a filled square is not a tick ---- */
 QCheckBox {{ spacing: 9px; }}
-QCheckBox::indicator {{ width: 18px; height: 18px; border-radius: 5px;
+QCheckBox::indicator {{ width: 18px; height: 18px; border-radius: 4px;
     border: 1px solid {c['border_strong']}; background: {c['surface']}; }}
 QCheckBox::indicator:hover {{ border-color: {c['primary']}; }}
-QCheckBox::indicator:checked {{ background: {c['primary']}; border-color: {c['primary']}; }}
+QCheckBox::indicator:checked, QCheckBox::indicator:indeterminate {{
+    background: {c['primary']}; border-color: {c['primary']}; }}
+QCheckBox::indicator:disabled {{ background: {c['surface_3']};
+    border-color: {c['border']}; }}
+{tick_rule}
+{dash_rule}
+
+/* ---- Radio buttons: were raw Qt-Fusion next to styled check boxes ---- */
+QRadioButton {{ spacing: 9px; }}
+QRadioButton::indicator {{ width: 18px; height: 18px; border-radius: 9px;
+    border: 1px solid {c['border_strong']}; background: {c['surface']}; }}
+QRadioButton::indicator:hover {{ border-color: {c['primary']}; }}
+QRadioButton::indicator:checked {{
+    border: 5px solid {c['primary']}; background: {c['surface']}; }}
+QRadioButton::indicator:disabled {{ background: {c['surface_3']};
+    border-color: {c['border']}; }}
 
 /* ---- Tables ---- */
 QTableWidget, QTableView {{
     background: {c['surface']}; border: 1px solid {c['border']};
-    border-radius: 14px; gridline-color: transparent;
+    border-radius: {RADIUS_CARD}px; gridline-color: transparent;
     selection-background-color: {c['primary_soft']}; selection-color: {c['text']};
     alternate-background-color: {c['surface_2']};
+    font-size: {s['table']}px;
 }}
 QHeaderView::section {{
-    background: {c['surface']}; color: {c['text_muted']};
-    padding: 11px 10px; border: none; border-bottom: 1px solid {c['border']};
-    font-weight: 700; font-size: 11px; text-transform: uppercase; letter-spacing: 0.4px;
+    background: {c['surface']}; color: {c['text_faint']};
+    padding: 10px; border: none; border-bottom: 1px solid {c['border']};
+    font-weight: 600; font-size: {s['label']}px; text-transform: uppercase;
+    letter-spacing: 0.6px;
 }}
-QTableWidget::item, QTableView::item {{ padding: 8px 8px; border: none; }}
+QTableWidget::item, QTableView::item {{ padding: 7px 8px; border: none; }}
 QTableWidget::item:hover, QTableView::item:hover {{ background: {c['surface_2']}; }}
 QTableCornerButton::section {{ background: {c['surface']}; border: none; }}
 
 /* ---- Tabs ---- */
-QTabWidget::pane {{ border: 1px solid {c['border']}; border-radius: 14px; top: -1px; background: {c['surface']}; }}
+QTabWidget::pane {{ border: 1px solid {c['border']}; border-radius: {RADIUS_CARD}px;
+    top: -1px; background: {c['surface']}; }}
 QTabBar::tab {{ background: transparent; color: {c['text_muted']};
-    padding: 9px 18px; border: none; border-bottom: 2px solid transparent; font-weight: 600; }}
-QTabBar::tab:selected {{ color: {c['primary']}; border-bottom: 2px solid {c['primary']}; }}
+    padding: 9px 17px; border: none; border-bottom: 2px solid transparent;
+    font-weight: 500; }}
+QTabBar::tab:selected {{ color: {c['primary']}; border-bottom: 2px solid {c['primary']};
+    font-weight: 600; }}
 QTabBar::tab:hover {{ color: {c['text']}; }}
-QTabBar::tab:focus {{ color: {c['text']}; background: {c['surface_2']}; border-bottom: 2px solid {c['border_strong']}; }}
+QTabBar::tab:focus {{ color: {c['text']}; border-bottom: 2px solid {c['border_strong']}; }}
 
-/* ---- Scrollbars (thin, unobtrusive) ---- */
+/* ---- Scrollbars ---- */
 QScrollBar:vertical {{ background: transparent; width: 10px; margin: 4px 2px 4px 0; }}
-QScrollBar::handle:vertical {{ background: {c['border_strong']}; border-radius: 5px; min-height: 36px; }}
+QScrollBar::handle:vertical {{ background: {c['border_strong']}; border-radius: 5px;
+    min-height: 36px; }}
 QScrollBar::handle:vertical:hover {{ background: {c['text_faint']}; }}
 QScrollBar:horizontal {{ background: transparent; height: 10px; margin: 0 4px 2px 4px; }}
-QScrollBar::handle:horizontal {{ background: {c['border_strong']}; border-radius: 5px; min-width: 36px; }}
+QScrollBar::handle:horizontal {{ background: {c['border_strong']}; border-radius: 5px;
+    min-width: 36px; }}
 QScrollBar::add-line, QScrollBar::sub-line {{ height: 0; width: 0; }}
 QScrollBar::add-page, QScrollBar::sub-page {{ background: transparent; }}
 
 /* ---- Progress ---- */
-QProgressBar {{ background: {c['surface_3']}; border: none; border-radius: 6px; height: 8px; text-align: center; }}
-QProgressBar::chunk {{ background: {c['primary']}; border-radius: 6px; }}
+QProgressBar {{ background: {c['surface_3']}; border: none; border-radius: 4px;
+    height: 7px; text-align: center; }}
+QProgressBar::chunk {{ background: {c['primary']}; border-radius: 4px; }}
+
+/* ---- Calendar popup (QDateEdit) followed the OS palette before ---- */
+QCalendarWidget QWidget {{ alternate-background-color: {c['surface_2']}; }}
+QCalendarWidget QAbstractItemView:enabled {{
+    background: {c['surface']}; color: {c['text']};
+    selection-background-color: {c['primary']}; selection-color: {c['on_primary']}; }}
+QCalendarWidget QWidget#qt_calendar_navigationbar {{ background: {c['surface_2']}; }}
 """
