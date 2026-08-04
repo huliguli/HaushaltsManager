@@ -70,11 +70,14 @@ class MainWindow(QWidget):
         root.setSpacing(0)
         root.addWidget(self._build_sidebar())
 
+        # Views are built ON DEMAND. Constructing all nine up front cost ~485 ms
+        # of every start for eight views the user may never open. Placeholders
+        # keep the stack indices aligned with _NAV; _view() swaps in the real
+        # widget the first time an entry is opened.
         self._stack = QStackedWidget()
-        for _label, _icon, view_cls in _NAV:
-            view = view_cls(ctx)
-            self._views.append(view)
-            self._stack.addWidget(view)
+        for _label, _icon, _view_cls in _NAV:
+            self._views.append(None)
+            self._stack.addWidget(QWidget())
         root.addWidget(self._stack, 1)
 
         self.ctx.data_changed.connect(self._refresh_current)
@@ -106,10 +109,30 @@ class MainWindow(QWidget):
         QShortcut(QKeySequence("Ctrl+PgDown"), self).activated.connect(
             lambda: self._shortcut_month(1))
 
-    def _current_view(self) -> BaseView:
-        return self._views[self._stack.currentIndex()]
+    def _view(self, index: int) -> BaseView:
+        """The view at ``index``, constructed on first use."""
+        view = self._views[index]
+        if view is None:
+            keep = self._stack.currentIndex()
+            view = _NAV[index][2](self.ctx)
+            placeholder = self._stack.widget(index)
+            self._stack.insertWidget(index, view)
+            self._stack.removeWidget(placeholder)
+            placeholder.deleteLater()
+            self._views[index] = view
+            # insertWidget/removeWidget move the current index around; restore it.
+            if 0 <= keep < self._stack.count():
+                self._stack.setCurrentIndex(keep)
+        return view
 
-    def _settings_view(self) -> EinstellungenView | None:
+    def _live_views(self) -> list[BaseView]:
+        """Only the views that have actually been built."""
+        return [v for v in self._views if v is not None]
+
+    def _current_view(self) -> BaseView:
+        return self._view(self._stack.currentIndex())
+
+    def _settings_view(self, create: bool = True) -> EinstellungenView | None:
         """The settings view, resolved by class instead of by position.
 
         The update flow (dialog, auto-install, thread shutdown) lives on this
@@ -117,9 +140,11 @@ class MainWindow(QWidget):
         that reordering the navigation disabled auto-update silently, with no
         error anywhere. A guard test pins this down.
         """
-        for view in self._views:
-            if isinstance(view, EinstellungenView):
-                return view
+        for index, (_label, _icon, view_cls) in enumerate(_NAV):
+            if view_cls is EinstellungenView:
+                # Build it if needed: the update flow runs at start-up, before
+                # the user has necessarily opened the settings view.
+                return self._view(index) if create else self._views[index]
         return None
 
     def _shortcut_new(self) -> None:
@@ -134,7 +159,7 @@ class MainWindow(QWidget):
             (i for i, (_l, _i, cls) in enumerate(_NAV) if cls is HaushaltsbuchView), None)
         if book_index is not None:
             self._select(book_index)
-            self._views[book_index].focus_search()
+            self._view(book_index).focus_search()
 
     def _shortcut_month(self, delta: int) -> None:
         nav = self._current_view().month_navigator()
@@ -192,13 +217,16 @@ class MainWindow(QWidget):
 
     # -- navigation ---------------------------------------------------------
     def _select(self, index: int) -> None:
+        # Build first, then switch: swapping the placeholder shifts stack
+        # indices, so selecting beforehand could land on the neighbouring view.
+        view = self._view(index)
         self._stack.setCurrentIndex(index)
         if 0 <= index < len(self._nav_buttons):
             self._nav_buttons[index].setChecked(True)
-        self._views[index].refresh()
+        view.refresh()
 
     def _refresh_current(self) -> None:
-        self._views[self._stack.currentIndex()].refresh()
+        self._current_view().refresh()
 
     def _on_drilldown(self, year: int, month: int, category: str) -> None:
         """Chart drilldown: open the Haushaltsbuch expenses, filtered."""
@@ -207,7 +235,7 @@ class MainWindow(QWidget):
         if index is None:
             return
         self._select(index)
-        self._views[index].show_expenses_filter(year, month, category or None)
+        self._view(index).show_expenses_filter(year, month, category or None)
 
     def _on_pots_requested(self) -> None:
         """Dashboard Töpfe card: open the Haushaltsbuch Töpfe tab."""
@@ -216,7 +244,7 @@ class MainWindow(QWidget):
         if index is None:
             return
         self._select(index)
-        self._views[index].show_pots()
+        self._view(index).show_pots()
 
     # -- theme --------------------------------------------------------------
     def _toggle_theme(self) -> None:
@@ -238,7 +266,7 @@ class MainWindow(QWidget):
         for (_label, icon_name, _cls), btn in zip(_NAV, self._nav_buttons):
             btn.setIcon(icons.icon(icon_name, color, 20))
         self._update_theme_button()
-        for view in self._views:
+        for view in self._live_views():
             view.on_theme_changed()
 
     # -- periodic background checks ------------------------------------------
@@ -358,7 +386,7 @@ class MainWindow(QWidget):
         timeout, so we wait with a cap and proceed regardless on shutdown.
         """
         threads = [self._update_checker]
-        settings = self._settings_view()
+        settings = self._settings_view(create=False)
         if settings is not None and hasattr(settings, "background_threads"):
             threads += settings.background_threads()
         for thread in threads:

@@ -45,7 +45,7 @@ def _info(asset: str = "https://github.com/x/Setup.exe"):
 def _spy(window):
     """Replace the settings view's two entry points with recorders."""
     calls = []
-    settings = window._views[-1]
+    settings = window._settings_view()
     settings.auto_install = lambda info: calls.append(("auto", info.tag))
     settings.show_update_dialog = lambda info: calls.append(("dialog", info.tag))
     return calls
@@ -75,7 +75,7 @@ def test_session_later_silences_hourly_recheck(tmp_path, monkeypatch):
     # this version — otherwise the app would nag every 60 minutes.
     window, ctx, db = _window(tmp_path, monkeypatch)
     calls = _spy(window)
-    window._views[-1].session_dismissed.add("v99.0.0")
+    window._settings_view().session_dismissed.add("v99.0.0")
     window._on_startup_update(_info())
     assert calls == []
     window.close()
@@ -96,7 +96,7 @@ def test_periodic_check_respects_active_flow(tmp_path, monkeypatch):
     # While a dialog/download is open, the hourly tick must not spawn a
     # second checker thread.
     window, ctx, db = _window(tmp_path, monkeypatch)
-    settings = window._views[-1]
+    settings = window._settings_view()
     settings._dialog_open = True
     window._update_checker = None
     window._periodic_update_check()

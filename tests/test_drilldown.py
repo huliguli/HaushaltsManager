@@ -48,7 +48,7 @@ def test_drilldown_opens_filtered_expenses(tmp_path, monkeypatch):
 
     ctx.request_drilldown(2026, 5, "Lebensmittel")
 
-    view = window._views[window._stack.currentIndex()]
+    view = window._current_view()
     assert isinstance(view, HaushaltsbuchView)
     tab = view.expenses_tab
     assert view.tabs.currentWidget() is tab
@@ -66,7 +66,7 @@ def test_drilldown_opens_filtered_expenses(tmp_path, monkeypatch):
 def test_drilldown_without_category_shows_whole_month(tmp_path, monkeypatch):
     window, ctx, db = _window(tmp_path, monkeypatch)
     ctx.request_drilldown(2026, 5, "")
-    tab = window._views[window._stack.currentIndex()].expenses_tab
+    tab = window._current_view().expenses_tab
     assert tab.cat_filter.currentData() is None
     assert tab.table.rowCount() == 2                    # both May bookings
     # An unknown category falls back to "Alle Kategorien" but keeps the month.
@@ -81,7 +81,7 @@ def test_drilldown_without_category_shows_whole_month(tmp_path, monkeypatch):
 def test_search_widens_scope_and_reset_restores_month(tmp_path, monkeypatch):
     window, ctx, db = _window(tmp_path, monkeypatch)
     ctx.request_drilldown(2026, 5, "")
-    tab = window._views[window._stack.currentIndex()].expenses_tab
+    tab = window._current_view().expenses_tab
 
     # Typing a search auto-switches to the all-months scope (cross-month search).
     tab.search.setText("rewe")

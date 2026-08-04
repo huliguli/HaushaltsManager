@@ -204,3 +204,42 @@ def test_seeding_does_not_undo_a_wipe(tmp_path, monkeypatch):
 
     # A fresh Config (= next app start) must remember that.
     assert Config().get("initial_seed_done") is True
+
+
+# --- Verzoegerter Ansichtsbau ------------------------------------------------
+def test_lazy_views_keep_stack_and_navigation_in_step(tmp_path, monkeypatch):
+    """Building a view on demand must not shift the stack under the selection.
+
+    The placeholder swap (insertWidget + removeWidget) moves QStackedWidget's
+    current index, so selecting a view before building it landed on the
+    NEIGHBOURING view. Every entry must resolve to its own class.
+    """
+    monkeypatch.setenv("APPDATA", str(tmp_path))
+    try:
+        from PyQt6.QtWidgets import QApplication
+    except Exception as exc:  # pragma: no cover - Qt unavailable
+        import pytest
+        pytest.skip(f"Qt nicht verfügbar: {exc}")
+
+    from modules.config import Config
+    from modules.db_handler.database import Database
+    from ui import main_window as mw
+    from ui.app_context import AppContext
+
+    QApplication.instance() or QApplication([])
+    db = Database(tmp_path / "lazy.db")
+    ctx = AppContext(db, Config())
+    window = mw.MainWindow(ctx)
+
+    # Only the start view exists after construction — that is the whole point.
+    built = [v for v in window._views if v is not None]
+    assert len(built) == 1, "beim Start darf nur die erste Ansicht gebaut sein"
+
+    # Visiting every entry must yield exactly its own class, in order.
+    for index, (_label, _icon, view_cls) in enumerate(mw._NAV):
+        window._select(index)
+        assert window._stack.currentIndex() == index
+        assert isinstance(window._current_view(), view_cls), (
+            f"Eintrag {index} zeigt die falsche Ansicht")
+    window.close()
+    db.close()
