@@ -76,9 +76,16 @@ def main() -> int:
         if db is None:
             return 1
         config = Config()
-        from modules.seed import seed_if_empty
-        if seed_if_empty(db):
-            log.info("Datenbank mit Startdaten befüllt (erster Start).")
+        # Seeding is a FIRST-START step, not a per-start one. Re-running it on
+        # every launch made "Alle Daten löschen" undo itself: the database is
+        # empty afterwards and the seed file is still on disk, so the next start
+        # silently refilled it. The flag is set regardless of whether a seed
+        # file was found, so the check happens exactly once.
+        if not config.get("initial_seed_done"):
+            from modules.seed import seed_if_empty
+            if seed_if_empty(db):
+                log.info("Datenbank mit Startdaten befüllt (erster Start).")
+            config.set("initial_seed_done", True)
         # Automatic safety net: one snapshot per day, never blocks the start.
         from modules import backup
         backup.startup_backup(db.conn, backup.backups_dir(db.path))

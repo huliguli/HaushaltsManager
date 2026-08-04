@@ -34,8 +34,9 @@ from ui.views.rechner_view import RechnerView
 from ui.views.sparplaner_view import SparplanerView
 from ui.views.verlauf_view import VerlaufView
 
-# (label, icon name, view class). Einstellungen must stay last — the update flow
-# and thread cleanup reference it as self._views[-1].
+# (label, icon name, view class). Order is a pure presentation concern: the
+# update flow looks the settings view up by CLASS (see _settings_view), never by
+# position, so reordering the navigation cannot silently disable auto-update.
 _NAV = [
     ("Dashboard", "dashboard", DashboardView),
     ("Verlauf", "chart", VerlaufView),
@@ -107,6 +108,19 @@ class MainWindow(QWidget):
 
     def _current_view(self) -> BaseView:
         return self._views[self._stack.currentIndex()]
+
+    def _settings_view(self) -> EinstellungenView | None:
+        """The settings view, resolved by class instead of by position.
+
+        The update flow (dialog, auto-install, thread shutdown) lives on this
+        view. Looking it up positionally — as ``self._views[-1]`` used to — meant
+        that reordering the navigation disabled auto-update silently, with no
+        error anywhere. A guard test pins this down.
+        """
+        for view in self._views:
+            if isinstance(view, EinstellungenView):
+                return view
+        return None
 
     def _shortcut_new(self) -> None:
         self._current_view().create_new()
@@ -257,7 +271,9 @@ class MainWindow(QWidget):
             return
         if self._update_checker is not None and self._update_checker.isRunning():
             return
-        settings_view = self._views[-1]
+        settings_view = self._settings_view()
+        if settings_view is None:
+            return
         if getattr(settings_view, "update_flow_active", lambda: False)():
             return
         self._update_checker = updater.UpdateChecker(GITHUB_REPO, APP_VERSION, parent=self)
@@ -309,7 +325,9 @@ class MainWindow(QWidget):
         if info is None or info.tag == self.ctx.config.get("skipped_version"):
             return
         # The Settings view owns the update dialog/installer flow.
-        settings_view = self._views[-1]
+        settings_view = self._settings_view()
+        if settings_view is None:
+            return
         # „Später“ gilt für die laufende Sitzung — der Stunden-Check fragt
         # nicht jede Stunde erneut nach derselben Version.
         if info.tag in getattr(settings_view, "session_dismissed", set()):
@@ -340,7 +358,7 @@ class MainWindow(QWidget):
         timeout, so we wait with a cap and proceed regardless on shutdown.
         """
         threads = [self._update_checker]
-        settings = self._views[-1] if self._views else None
+        settings = self._settings_view()
         if settings is not None and hasattr(settings, "background_threads"):
             threads += settings.background_threads()
         for thread in threads:

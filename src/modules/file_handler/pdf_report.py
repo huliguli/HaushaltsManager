@@ -458,7 +458,7 @@ def generate_monthly_report(
                              [_CONTENT_W * 0.62, _CONTENT_W * 0.38]))
 
     # Expense chart.
-    png = _donut_png(overview.expenses_by_category)
+    png = _donut_png(overview.all_by_category)
     if png:
         _chart_section(story, styles, "Ausgaben nach Kategorie",
                        Image(io.BytesIO(png), width=168 * mm, height=84 * mm))

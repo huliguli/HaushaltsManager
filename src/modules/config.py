@@ -19,6 +19,10 @@ _DEFAULTS: dict[str, Any] = {
     "theme": "light",                # "light" | "dark"
     "window": {"w": 1240, "h": 820, "x": None, "y": None, "maximized": False},
     "wizard_completed": False,
+    # Set once the very first start has run the seed check. Without it the
+    # auto-seed would fire again after "Alle Daten löschen" and silently undo
+    # the wipe (the database is empty and the seed file is still there).
+    "initial_seed_done": False,
     "update_check_enabled": True,
     "last_update_check": None,        # ISO timestamp
     "skipped_version": None,          # release tag the user chose to skip

@@ -79,7 +79,7 @@ def monthly_series(
             year=y, month=m,
             income_cents=ov.income_cents, fixed_cents=ov.fixed_cents,
             variable_cents=ov.variable_cents, remaining_cents=ov.after_all_cents,
-            by_category=dict(ov.expenses_by_category))
+            by_category=dict(ov.all_by_category))
         points.append(pt)
         if summary_repo is not None and (y, m) != (ref.year, ref.month):
             summary_repo.upsert(MonthlySummary(

@@ -30,6 +30,13 @@ def commit_transactions(
     """
     today_iso = today_iso or dates.to_iso(dates.today())
     n_exp = n_inc = 0
+    # Two genuinely identical bookings (same day, amount and payee — normal for
+    # PDF/CSV statements) share one transaction_hash. The log's UNIQUE(tx_hash)
+    # plus INSERT OR IGNORE then kept only ONE row for two created bookings, so
+    # "Import rückgängig" removed only one of them. Numbering repeats within the
+    # batch restores a 1:1 mapping without touching the schema; de-duplication
+    # still works because the FIRST occurrence keeps the plain hash.
+    seen_hashes: dict[str, int] = {}
     for t in transactions:
         if t.is_income:
             # Imported credits are ONE-OFF income, booked to their statement
@@ -56,7 +63,11 @@ def commit_transactions(
             if t.payee:  # learn: this payee -> this category for next time
                 rule_repo.upsert(
                     normalize(t.payee), t.category or "Sonstiges", learned=True)
-        log_repo.add(transaction_hash(t), t.booking_date, t.amount_cents,
+        base_hash = transaction_hash(t)
+        seen_hashes[base_hash] = seen_hashes.get(base_hash, 0) + 1
+        occurrence = seen_hashes[base_hash]
+        tx_hash = base_hash if occurrence == 1 else f"{base_hash}#{occurrence}"
+        log_repo.add(tx_hash, t.booking_date, t.amount_cents,
                      batch_id=batch_id, created_kind=created_kind,
                      created_row_id=created_id)
     return n_exp, n_inc

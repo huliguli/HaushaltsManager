@@ -116,7 +116,12 @@ class ChartCanvas(FigureCanvasQTAgg):
         for side in ("left", "bottom"):
             ax.spines[side].set_color(c["border"])
         ax.tick_params(colors=c["text_muted"], labelsize=8, length=0)
-        ax.yaxis.set_major_formatter(FuncFormatter(lambda v, _pos: _euro_short(int(v))))
+        # The plot methods below feed matplotlib EUROS (they divide the incoming
+        # cents by 100), while _euro_short expects CENTS — so the tick value must
+        # be converted back. Without this the axis was labelled a factor of 100
+        # too low: "35 €" where 3.500 € was plotted.
+        ax.yaxis.set_major_formatter(
+            FuncFormatter(lambda v, _pos: _euro_short(int(round(v * 100)))))
         ax.grid(axis="y", color=c["border"], linewidth=0.8, alpha=0.7)
         ax.set_axisbelow(True)
         n = len(labels)

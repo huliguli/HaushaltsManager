@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import calendar
 
-from modules.models import BudgetOverview
+from modules.models import FIXED_TO_EXPENSE_CATEGORY, BudgetOverview
 
 
 def month_bounds(year: int, month: int) -> tuple[str, str]:
@@ -40,6 +40,12 @@ def compute_overview(
     by_cat = expense_repo.by_category_for_month(year, month)
     # Loan instalments are the fixed costs categorised as "Kredit".
     credits_total = sum(c.amount_cents for c in fixed_costs if c.category == "Kredit")
+    # Fixed costs mapped onto the expense taxonomy, so a category breakdown can
+    # show the WHOLE month instead of just its variable part.
+    fixed_by_cat: dict[str, int] = {}
+    for cost in fixed_costs:
+        bucket = FIXED_TO_EXPENSE_CATEGORY.get(cost.category, cost.category)
+        fixed_by_cat[bucket] = fixed_by_cat.get(bucket, 0) + cost.amount_cents
     return BudgetOverview(
         income_cents=income,
         recurring_income_cents=recurring_income,
@@ -47,4 +53,5 @@ def compute_overview(
         variable_cents=variable,
         credits_cents=credits_total,
         expenses_by_category=by_cat,
+        fixed_by_category=fixed_by_cat,
     )

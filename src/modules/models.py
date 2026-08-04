@@ -49,6 +49,24 @@ EXPENSE_CATEGORIES = [
     "Bargeld",
     "Sonstiges",
 ]
+# Fixed costs and variable expenses use two different vocabularies, which is why
+# "Ausgaben nach Kategorie" used to show variable spending ONLY — in practice
+# well under half the month. This maps a fixed-cost category onto the expense
+# taxonomy so both can be shown in one honest breakdown. "Sparen" deliberately
+# keeps its own bucket: money moved to savings leaves the account but is not
+# spent, and lumping it into an expense category would misrepresent it.
+FIXED_TO_EXPENSE_CATEGORY = {
+    "Wohnen": "Wohnen & Miete",
+    "Auto": "Auto & Tanken",
+    "Kommunikation": "Telekommunikation",
+    "Kredit": "Kredite & Finanzierung",
+    "Freizeit": "Freizeit & Unterhaltung",
+    "Persönlich": "Sonstiges",
+    "Versicherung": "Versicherung",
+    "Sparen": "Sparen & Rücklagen",
+    "Sonstiges": "Sonstiges",
+}
+
 CREDIT_CATEGORIES = ["Auto", "Haus", "Divers", "Persönlich"]
 INCOME_TYPES = ["minijob", "teilzeit", "vollzeit", "sonstiges"]
 INCOME_TYPE_LABELS = {
@@ -447,6 +465,22 @@ class BudgetOverview:
     variable_cents: int = 0
     credits_cents: int = 0            # share of fixed that are loan instalments
     expenses_by_category: dict = field(default_factory=dict)
+    # Fixed costs of this month, already mapped onto the expense taxonomy.
+    fixed_by_category: dict = field(default_factory=dict)
+
+    @property
+    def all_by_category(self) -> dict:
+        """Everything that left the account this month, by category.
+
+        ``expenses_by_category`` alone covers only the variable side — for a
+        typical household that is a minority of the month, so a breakdown built
+        on it understates every category that also has a fixed part (rent,
+        insurance, telco). Sorted descending so callers can take the top N.
+        """
+        merged: dict[str, int] = dict(self.expenses_by_category)
+        for category, cents in self.fixed_by_category.items():
+            merged[category] = merged.get(category, 0) + cents
+        return dict(sorted(merged.items(), key=lambda kv: kv[1], reverse=True))
 
     @property
     def after_fixed_cents(self) -> int:

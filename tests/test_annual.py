@@ -45,7 +45,15 @@ def test_build_totals_and_categories(tmp_path):
     assert ov.fixed_cents == 12 * 80_000
     assert ov.variable_cents == 50_000
     assert ov.remaining_cents == ov.income_cents - ov.fixed_cents - 50_000
-    assert ov.by_category == {"Lebensmittel": 30_000, "Auto & Tanken": 20_000}
+    # The breakdown covers the WHOLE year, fixed costs included. It used to list
+    # only the variable side, which hid the largest position of every household
+    # (here: 12 x 800 EUR rent) from the category view entirely.
+    assert ov.by_category == {
+        "Wohnen & Miete": 12 * 80_000,
+        "Lebensmittel": 30_000,
+        "Auto & Tanken": 20_000,
+    }
+    assert sum(ov.by_category.values()) == ov.fixed_cents + ov.variable_cents
     assert ov.has_data
     db.close()
 
@@ -80,11 +88,14 @@ def test_category_matrix_lines_up(tmp_path):
     _seed(income, fixed, exp, var_inc)
     ov = annual.build(income, fixed, exp, var_inc, 2025, today=TODAY)
     categories, per_month = annual.category_matrix(ov)
-    assert categories == ["Lebensmittel", "Auto & Tanken"]
+    # Rent leads the year because fixed costs are part of the breakdown now.
+    assert categories == ["Wohnen & Miete", "Lebensmittel", "Auto & Tanken"]
     assert len(per_month["Lebensmittel"]) == 12
     assert per_month["Lebensmittel"][2] == 30_000        # März
     assert per_month["Auto & Tanken"][7] == 20_000       # August
     assert sum(per_month["Lebensmittel"]) == 30_000
+    # An open-ended fixed cost hits every single month.
+    assert per_month["Wohnen & Miete"] == [80_000] * 12
     db.close()
 
 

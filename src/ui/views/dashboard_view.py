@@ -244,14 +244,16 @@ class DashboardView(BaseView):
         canvas = ChartCanvas(c, width=4.2, height=2.6)
         canvas.setMinimumHeight(230)
         canvas.setAccessibleName("Ausgaben nach Kategorie in diesem Monat")
-        by_cat = ov.expenses_by_category
+        # Whole month, not just its variable part: the fixed costs are mapped
+        # onto the expense taxonomy in budget.compute_overview.
+        by_cat = ov.all_by_category
         if by_cat:
             labels = list(by_cat.keys())
             values = [v / 100.0 for v in by_cat.values()]
             cycle = theme.chart_colors(c)
             slice_colors = [cycle[i % len(cycle)] for i in range(len(labels))]
             canvas.donut(labels, values, slice_colors,
-                         center_text=format_eur_short(ov.variable_cents),
+                         center_text=format_eur_short(ov.fixed_cents + ov.variable_cents),
                          on_slice=self._drill_category)
             top = ", ".join(f"{k} {format_eur(v)}" for k, v in list(by_cat.items())[:3])
             canvas.setAccessibleDescription(f"Größte Kategorien: {top}.")

@@ -74,7 +74,7 @@ def build(income_repo, fixed_repo, expense_repo, var_income_repo,
             year=year, month=month,
             income_cents=m_ov.income_cents, fixed_cents=m_ov.fixed_cents,
             variable_cents=m_ov.variable_cents, remaining_cents=m_ov.after_all_cents,
-            by_category=dict(m_ov.expenses_by_category))
+            by_category=dict(m_ov.all_by_category))
         ov.points.append(pt)
         ov.income_cents += pt.income_cents
         ov.fixed_cents += pt.fixed_cents
