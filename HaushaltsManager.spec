@@ -89,7 +89,9 @@ a = Analysis(
         # must start with an empty database, never with demo data.
     ],
     hiddenimports=[
-        'matplotlib.backends.backend_qtagg',
+        # The UI draws its own charts now (ui/widgets/charts.py); matplotlib is
+        # only left in the PDF reports, which use the Agg backend. The Qt
+        # backend is no longer needed anywhere.
         'matplotlib.backends.backend_agg',
         'defusedxml.ElementTree',  # safe CAMT/XML parsing for the bank import
     ],
