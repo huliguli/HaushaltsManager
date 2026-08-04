@@ -190,6 +190,68 @@ class VariableExpenseRepository:
         )
         return [VariableExpense.from_row(r) for r in rows]
 
+    def search(self, term: str = "", category: str | None = None,
+               limit: int = 5000) -> list[VariableExpense]:
+        """Search every booking in SQL — description, category AND amount.
+
+        The view used to pull the 5000 most recent rows into Python and filter
+        them there, so with a longer history an existing booking was simply
+        "not found" with no hint that the list had been cut. Filtering in SQL
+        searches the whole table; ``limit`` only caps how many hits are
+        rendered, and the caller is told when it bites (see :meth:`count_search`).
+
+        A term that parses as an amount also matches the amount, so typing
+        "42,85" finds the booking of 42,85 EUR.
+        """
+        from modules.money import try_parse_eur
+
+        where, params = [], []
+        term = (term or "").strip()
+        if term:
+            like = f"%{term.lower()}%"
+            clause = ("(LOWER(COALESCE(description, '')) LIKE ? "
+                      "OR LOWER(category) LIKE ?)")
+            params += [like, like]
+            cents = try_parse_eur(term)
+            if cents is not None:
+                clause = clause[:-1] + " OR ABS(amount_cents) = ?)"
+                params.append(abs(cents))
+            where.append(clause)
+        if category:
+            where.append("category = ?")
+            params.append(category)
+        sql = "SELECT * FROM variable_expenses"
+        if where:
+            sql += " WHERE " + " AND ".join(where)
+        sql += " ORDER BY date DESC, id DESC LIMIT ?"
+        params.append(int(limit))
+        return [VariableExpense.from_row(r) for r in self.db.query(sql, tuple(params))]
+
+    def count_search(self, term: str = "", category: str | None = None) -> int:
+        """How many bookings match — so the UI can say when it truncated."""
+        from modules.money import try_parse_eur
+
+        where, params = [], []
+        term = (term or "").strip()
+        if term:
+            like = f"%{term.lower()}%"
+            clause = ("(LOWER(COALESCE(description, '')) LIKE ? "
+                      "OR LOWER(category) LIKE ?)")
+            params += [like, like]
+            cents = try_parse_eur(term)
+            if cents is not None:
+                clause = clause[:-1] + " OR ABS(amount_cents) = ?)"
+                params.append(abs(cents))
+            where.append(clause)
+        if category:
+            where.append("category = ?")
+            params.append(category)
+        sql = "SELECT COUNT(*) AS n FROM variable_expenses"
+        if where:
+            sql += " WHERE " + " AND ".join(where)
+        row = self.db.query_one(sql, tuple(params))
+        return int(row["n"]) if row else 0
+
     def list_recurring_templates(self) -> list[VariableExpense]:
         """All recurring templates (the rows, not their monthly occurrences)."""
         rows = self.db.query(

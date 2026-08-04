@@ -520,18 +520,25 @@ class _ExpensesTab(QWidget):
     def _is_filtering(self) -> bool:
         return bool(self.search.text().strip()) or self.cat_filter.currentData() is not None
 
+    # How many hits are rendered at once. The SEARCH itself always covers the
+    # whole table; this only bounds the table widget, and the caller reports
+    # when it bites instead of silently hiding rows.
+    SEARCH_RENDER_LIMIT = 2000
+
     def _filtered_items(self) -> list:
-        """Expenses across all months matching the search text and/or category."""
-        term = self.search.text().strip().lower()
-        cat = self.cat_filter.currentData()
-        out = []
-        for it in self.ctx.expenses.list_recent(5000):
-            if cat and it.category != cat:
-                continue
-            if term and term not in (it.description or "").lower():
-                continue
-            out.append(it)
-        return out
+        """Expenses across all months matching the search text and/or category.
+
+        Filtered in SQL over description, category and amount. The previous
+        version loaded the 5000 newest rows and filtered them in Python, so a
+        booking older than that was reported as "not found".
+        """
+        return self.ctx.expenses.search(
+            self.search.text(), self.cat_filter.currentData(),
+            limit=self.SEARCH_RENDER_LIMIT)
+
+    def _filtered_count(self) -> int:
+        return self.ctx.expenses.count_search(
+            self.search.text(), self.cat_filter.currentData())
 
     def refresh(self) -> None:
         self._nav.refresh_icons(self.ctx.colors)   # keep chevrons themed
@@ -540,8 +547,14 @@ class _ExpensesTab(QWidget):
         self._nav.setEnabled(not cross_month)
         if cross_month:
             items = self._filtered_items()
+            matches = self._filtered_count()
             total = sum(it.amount_cents for it in items)
-            self.total.setText(f"{len(items)} Treffer · Summe {format_eur(total)}")
+            text = f"{matches} Treffer · Summe {format_eur(total)}"
+            if matches > len(items):
+                # Never let the list quietly hide hits — say so.
+                text = (f"{matches} Treffer · die {len(items)} neuesten werden "
+                        f"angezeigt · Summe daraus {format_eur(total)}")
+            self.total.setText(text)
         else:
             # Month view: one-off expenses of this month + every recurring expense
             # that has started by now (materialised on the fly) — optionally
