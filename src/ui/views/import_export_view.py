@@ -23,7 +23,10 @@ from modules.bank_import import parsers as bank_parsers
 from modules.bank_import.categorize import Categorizer
 from modules.bank_import.commit import commit_transactions
 from modules.bank_import.model import transaction_hash
-from modules.file_handler import excel_io, pdf_import, pdf_report
+# NOTE: excel_io / pdf_report / pdf_import are imported lazily inside the
+# handlers below. They pull in reportlab, openpyxl and matplotlib, which
+# together cost several hundred ms of start-up for a feature the user only
+# reaches by clicking a button.
 from ui import icons
 from ui.bank_import_dialogs import BankCsvMappingDialog, BankReviewDialog
 from ui.import_dialogs import MappingDialog, PdfImportDialog
@@ -196,6 +199,7 @@ class ImportExportView(BaseView):
         if not path:
             return
         try:
+            from modules.file_handler import excel_io
             headers, rows, guess = excel_io.read_preview(path)
             if not rows:
                 QMessageBox.information(self, "Import", "Die Datei enthält keine Datenzeilen.")
@@ -203,6 +207,7 @@ class ImportExportView(BaseView):
             dlg = MappingDialog(headers, rows, guess, self)
             if not dlg.exec():
                 return
+            from modules.file_handler import excel_io
             expenses, skipped = excel_io.rows_to_expenses(
                 rows, dlg.mapping(), dlg.default_category())
             for e in expenses:
@@ -220,6 +225,7 @@ class ImportExportView(BaseView):
         if not path:
             return
         try:
+            from modules.file_handler import pdf_import
             amounts = pdf_import.extract_amounts(path)
             if not amounts:
                 QMessageBox.information(self, "PDF-Import", "Es wurden keine Beträge erkannt.")
@@ -361,6 +367,7 @@ class ImportExportView(BaseView):
         if not path:
             return
         try:
+            from modules.file_handler import excel_io
             out = excel_io.export_workbook(
                 path, income=self.ctx.income.list(), fixed_costs=self.ctx.fixed.list(),
                 expenses=self.ctx.expenses.list_for_month(y, m),
@@ -378,6 +385,7 @@ class ImportExportView(BaseView):
         if not path:
             return
         try:
+            from modules.file_handler import pdf_report
             out = pdf_report.generate_monthly_report(
                 path, year=y, month=m, overview=self.ctx.overview(y, m),
                 fixed_costs=self.ctx.fixed.list(),
@@ -420,6 +428,7 @@ class ImportExportView(BaseView):
             return
         try:
             overview, prev = self._annual_overviews(year)
+            from modules.file_handler import pdf_report
             out = pdf_report.generate_year_report(
                 path, overview=overview, prev_overview=prev)
             self._export_done(str(out))

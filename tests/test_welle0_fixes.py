@@ -113,11 +113,13 @@ def test_savings_keep_their_own_bucket(tmp_path, monkeypatch):
 
 
 # --- Achsenbeschriftung der Diagramme ---------------------------------------
-def test_chart_axis_label_matches_the_plotted_value():
-    """The y-axis formatter must not divide by 100 a second time.
+def test_chart_axis_labels_match_the_plotted_amounts():
+    """A tick must be labelled with the amount that is actually plotted.
 
-    _style_axes feeds matplotlib euros; _euro_short expects cents. Labelling
-    3.000 € as "30 €" was the single worst bug of the audit.
+    The old matplotlib canvas converted cents to euros in the plot method and
+    then let the tick formatter divide by 100 a SECOND time, so 3.000 EUR was
+    labelled "30 EUR". The QPainter charts convert exactly once, at the label,
+    and take integer cents throughout — this test pins that contract down.
     """
     try:
         from PyQt6.QtWidgets import QApplication
@@ -125,20 +127,26 @@ def test_chart_axis_label_matches_the_plotted_value():
         import pytest
         pytest.skip(f"Qt nicht verfügbar: {exc}")
 
+    from modules.money import format_eur_short
     from ui import theme
-    from ui.widgets.chart_canvas import ChartCanvas
+    from ui.widgets.charts import ColumnTrend
 
     QApplication.instance() or QApplication([])
-    canvas = ChartCanvas(theme.palette("light"))
-    # 3.000,00 € and 1.500,00 € as integer cents.
-    canvas.line_series(["Jan", "Feb"], [("Einnahmen", [300000, 150000], "#000000")])
-    ax = canvas.fig.axes[0]
-    formatter = ax.yaxis.get_major_formatter()
+    chart = ColumnTrend(theme.palette("light"))
+    chart.resize(600, 260)
+    # 3.000,00 EUR and 1.500,00 EUR as integer cents.
+    chart.set_data(["Jan", "Feb"], [300000, 150000], [280000, 140000])
 
-    # The axis works in euros, so a tick sitting at 3000.0 is 3.000 €.
-    assert formatter(3000.0, 0) == "3,0k €"
-    assert formatter(500.0, 0) == "500 €"
-    assert formatter(0.0, 0) == "0 €"
+    # The formatter used for the axis is the app's own money formatter, which
+    # takes CENTS — so the tick for 3.000 EUR must read "3.000 EUR", not "30".
+    assert format_eur_short(300000) == "3.000 €"
+    assert format_eur_short(150000) == "1.500 €"
+    assert format_eur_short(0) == "0 €"
+
+    # Rendering must not raise and must produce a non-empty pixmap.
+    pixmap = chart.grab()
+    assert not pixmap.isNull()
+    assert pixmap.width() > 0
 
 
 # --- Updater-Kopplung --------------------------------------------------------

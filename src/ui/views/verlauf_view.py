@@ -32,7 +32,7 @@ from modules import annual, dates, forecast, history
 from modules.money import format_eur, format_eur_short
 from ui import theme
 from ui.views.base_view import BaseView
-from ui.widgets.chart_canvas import ChartCanvas
+from ui.widgets.charts import BalanceLine, ColumnTrend, StackedMonths
 from ui.widgets.common import StatCard, align_table_headers, heading, muted
 
 _RANGES = [("6 Monate", 6), ("12 Monate", 12), ("24 Monate", 24)]
@@ -95,8 +95,9 @@ class VerlaufView(BaseView):
 
         # Line chart card.
         self._line_card, line_body = self._chart_card(
-            "Einnahmen, Ausgaben & Saldo")
-        self._line_canvas = ChartCanvas(c, width=6.6, height=2.9)
+            "Einnahmen und Ausgaben")
+        self._line_canvas = ColumnTrend(c)
+        self._line_canvas.month_clicked.connect(self._drill_month)
         self._line_canvas.setMinimumHeight(250)
         self._line_canvas.setAccessibleName("Verlauf Einnahmen, Ausgaben und Saldo")
         line_body.addWidget(self._line_canvas)
@@ -114,7 +115,7 @@ class VerlaufView(BaseView):
         self._forecast_note.setObjectName("Muted")
         self._forecast_note.setWordWrap(True)
         fc_body.addWidget(self._forecast_note)
-        self._forecast_canvas = ChartCanvas(c, width=6.6, height=2.9)
+        self._forecast_canvas = BalanceLine(c)
         self._forecast_canvas.setMinimumHeight(250)
         self._forecast_canvas.setAccessibleName("Saldo-Prognose für die kommenden Monate")
         fc_body.addWidget(self._forecast_canvas)
@@ -127,7 +128,8 @@ class VerlaufView(BaseView):
 
         # Stacked category bars card.
         self._bar_card, bar_body = self._chart_card("Ausgaben nach Kategorie")
-        self._bar_canvas = ChartCanvas(c, width=6.6, height=3.1)
+        self._bar_canvas = StackedMonths(c)
+        self._bar_canvas.month_clicked.connect(self._drill_month)
         self._bar_canvas.setMinimumHeight(260)
         self._bar_canvas.setAccessibleName("Ausgaben nach Kategorie über die Monate")
         bar_body.addWidget(self._bar_canvas)
@@ -263,9 +265,9 @@ class VerlaufView(BaseView):
                 card.set_hint("Noch keine Daten")
             self._income_card.set_hint(
                 "Erfasse Einnahmen und Ausgaben im Haushaltsbuch")
-            self._line_canvas.line_series([], [])
-            self._bar_canvas.bars_stacked([], [])
-            self._forecast_canvas.saldo_forecast([], [], [], c["primary"])
+            self._line_canvas.set_data([], [], [])
+            self._bar_canvas.set_data([], [])
+            self._forecast_canvas.set_data([], [], [])
             self._forecast_note.setText(
                 "Sobald Einnahmen und Fixkosten erfasst sind, zeigt die "
                 "Prognose hier den voraussichtlichen Saldo der kommenden Monate.")
@@ -293,12 +295,16 @@ class VerlaufView(BaseView):
 
         # Line chart: income / spending / balance.
         out_series = [p.fixed_cents + p.variable_cents for p in points]
+        # Paired columns rather than three crossing lines: the balance is
+        # easier to read from the gap between income and spending.
+        # Only what is actually drawn belongs in the legend — the balance is
+        # the gap between the two columns and has its own headline card.
         line_series = [
-            ("Einnahmen", [p.income_cents for p in points], c["blue"]),
-            ("Ausgaben", out_series, c["amber"]),
-            ("Saldo", [p.remaining_cents for p in points], c["green"]),
+            ("Einnahmen", [p.income_cents for p in points], c["green"]),
+            ("Ausgaben", out_series, c["red"]),
         ]
-        self._line_canvas.line_series(labels, line_series, on_month=self._drill_month)
+        self._line_canvas.set_data(
+            labels, [p.income_cents for p in points], out_series)
         self._line_canvas.setAccessibleDescription(
             f"Ø Einnahmen {format_eur(avg_income)}, Ø Ausgaben {format_eur(avg_out)}, "
             f"Ø Saldo {format_eur(avg_saldo)} über {n} Monate.")
@@ -309,7 +315,7 @@ class VerlaufView(BaseView):
         cycle = theme.chart_colors(c)
         bar_series = [(cat, per_month[cat], cycle[i % len(cycle)])
                       for i, cat in enumerate(cat_labels)]
-        self._bar_canvas.bars_stacked(labels, bar_series, on_month=self._drill_month)
+        self._bar_canvas.set_data(labels, bar_series)
         self._fill_bar_legend(cat_labels, cycle)
 
         # Forward projection: same horizon as the selected range, connected to
@@ -321,8 +327,7 @@ class VerlaufView(BaseView):
         actual = [p.remaining_cents for p in tail]
         future = [p.remaining_cents for p in fpoints]
         event_idx = [len(tail) + i for i, p in enumerate(fpoints) if p.events]
-        self._forecast_canvas.saldo_forecast(
-            f_labels, actual, future, c["primary"], event_idx)
+        self._forecast_canvas.set_data(f_labels, actual, future, event_idx)
         avg_future = sum(future) // max(1, len(future))
         self._forecast_note.setText(
             f"Voraussichtlicher Saldo: Ø {format_eur(avg_future)} pro Monat, "
