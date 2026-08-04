@@ -14,6 +14,7 @@ from PyQt6.QtWidgets import (
     QLabel,
     QMessageBox,
     QPushButton,
+    QSizePolicy,
     QVBoxLayout,
     QWidget,
 )
@@ -32,7 +33,7 @@ from ui.bank_import_dialogs import BankCsvMappingDialog, BankReviewDialog
 from ui.import_dialogs import MappingDialog, PdfImportDialog
 from ui.views.base_view import BaseView
 from ui.wizard import run_wizard
-from ui.widgets.common import heading, muted
+from ui.widgets.common import primary_button_qss, heading, muted
 from ui.widgets.month_nav import MonthNavigator
 
 
@@ -171,25 +172,49 @@ class ImportExportView(BaseView):
         return row
 
     def _action(self, title: str, desc: str, button_text: str, slot) -> QFrame:
+        """One import/export tile: text column left, action button right.
+
+        The description used to sit ABOVE the button in a vertical stack. A
+        word-wrapped QLabel reports its height only once its width is known, so
+        the tile ended up too short and cut sentences mid-word — the button even
+        overlapped the last line. Text and button now occupy separate columns,
+        which makes the tile's height follow the text.
+        """
         frame = QFrame()
         frame.setObjectName("Panel")
-        layout = QVBoxLayout(frame)
-        layout.setContentsMargins(16, 14, 16, 14)
-        layout.setSpacing(4)
+        row = QHBoxLayout(frame)
+        row.setContentsMargins(16, 14, 16, 14)
+        row.setSpacing(14)
+
+        text_col = QVBoxLayout()
+        text_col.setSpacing(3)
         t = QLabel(title)
-        t.setStyleSheet("font-weight: 700; font-size: 15px;")
+        t.setStyleSheet("font-weight: 600; font-size: 15px;")
+        t.setWordWrap(True)
         d = QLabel(desc)
         d.setObjectName("Faint")
         d.setWordWrap(True)
-        layout.addWidget(t)
-        layout.addWidget(d)
+        d.setMinimumWidth(180)
+        # A wrapped QLabel reports the height for its PREFERRED width unless the
+        # policy explicitly asks the layout for height-for-width. Without this
+        # the tile is sized for one line too few and cuts the last sentence.
+        for label in (t, d):
+            policy = label.sizePolicy()
+            policy.setHorizontalPolicy(QSizePolicy.Policy.Preferred)
+            policy.setVerticalPolicy(QSizePolicy.Policy.Minimum)
+            policy.setHeightForWidth(True)
+            label.setSizePolicy(policy)
+        text_col.addWidget(t)
+        text_col.addWidget(d)
+
         btn = QPushButton(button_text)
         btn.setObjectName("Primary")
+        btn.setStyleSheet(primary_button_qss(self.ctx.colors))
+        btn.setCursor(Qt.CursorShape.PointingHandCursor)
         btn.clicked.connect(slot)
-        row = QHBoxLayout()
-        row.addStretch(1)
-        row.addWidget(btn)
-        layout.addLayout(row)
+
+        row.addLayout(text_col, 1)
+        row.addWidget(btn, 0, Qt.AlignmentFlag.AlignVCenter)
         return frame
 
     # -- import handlers ----------------------------------------------------
