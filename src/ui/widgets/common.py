@@ -114,6 +114,9 @@ class StatCard(QFrame):
         self._delta = QLabel("")
         self._delta.setObjectName("CardHint")
         self._delta.setVisible(False)
+        # Without wrapping, the longest delta string sets the card's minimum
+        # width and pushes the whole row past the window edge.
+        self._delta.setWordWrap(True)
         self._hint = QLabel("")
         self._hint.setObjectName("CardHint")
         self._hint.setWordWrap(True)
@@ -122,7 +125,29 @@ class StatCard(QFrame):
         body.addWidget(self._delta)
         body.addWidget(self._hint)
         body.addStretch(1)
+        self._spark = None
+        self._body_layout = body
         root.addLayout(body, 1)
+
+    def set_sparkline(self, values, colors: dict, color_key: str = "primary") -> None:
+        """Add (or update) a small trend line under the number.
+
+        A bare number says what is; the trend says whether that is normal. This
+        is what earns the card its space — the old card left the lower half
+        empty.
+        """
+        from ui.widgets.charts import Sparkline
+
+        if len(values or []) < 2:
+            return
+        if self._spark is None:
+            self._spark = Sparkline(colors, values, color_key=color_key)
+            self._spark.setFixedHeight(28)
+            self._body_layout.addWidget(self._spark)
+        else:
+            self._spark.set_colors(colors)
+            self._spark.color_key = color_key
+            self._spark.set_values(values)
 
     def set_value(self, text: str, color: str | None = None) -> None:
         self._value.setText(text)

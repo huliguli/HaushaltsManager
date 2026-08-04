@@ -25,14 +25,14 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from modules import dates, pots as pots_mod, savings_goals
+from modules import dates, history, pots as pots_mod, savings_goals
 from modules.calculator import timeline
 from modules.money import format_eur, format_eur_short
 from ui import theme
 from ui.budget_dialog import CategoryBudgetDialog
 from ui.goal_dialogs import SavingsGoalsManageDialog
 from ui.views.base_view import BaseView
-from ui.widgets.chart_canvas import ChartCanvas
+from ui.widgets.charts import CategoryBars, ColumnTrend
 from ui.widgets.common import StatCard, clear_layout, heading, muted, primary_button
 from ui.widgets.month_nav import MonthNavigator
 
@@ -62,6 +62,9 @@ class DashboardView(BaseView):
 
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
+        # Content adapts to the window; a sideways scrollbar on a dashboard
+        # means panels are being cut off rather than laid out.
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         scroll.setFrameShape(QFrame.Shape.NoFrame)
         scroll.setStyleSheet("QScrollArea { background: transparent; border: none; }")
         outer.addWidget(scroll)
@@ -107,6 +110,13 @@ class DashboardView(BaseView):
         nav.month_changed.connect(self._on_month)
         self._nav = nav  # exposed via month_navigator() for the keyboard layer
         header.addWidget(nav)
+        # Capturing an expense used to be three clicks away and was not
+        # reachable from the dashboard at all — the most frequent action of the
+        # whole app now sits on its start screen.
+        add = primary_button("+  Ausgabe erfassen", c)
+        add.clicked.connect(self.create_new)
+        header.addSpacing(8)
+        header.addWidget(add)
         self._body.addLayout(header)
 
         # First start: an empty database shows zeros everywhere — put the
@@ -115,21 +125,58 @@ class DashboardView(BaseView):
         if database_is_empty(self.ctx.db):
             self._body.addWidget(self._onboarding_card(c))
 
-        self._body.addWidget(self._stat_row(ov, prev, c))
-        self._body.addWidget(self._availability_and_chart(ov, c))
+        # A 12-month series feeds both the trend card and the card sparklines.
+        series = history.monthly_series(
+            self.ctx.income, self.ctx.fixed, self.ctx.expenses, self.ctx.var_income,
+            months=12, ref=date(self._year, self._month, 1))
+
+        self._body.addWidget(self._stat_row(ov, prev, c, series))
+
+        # Two columns instead of one full-width stack: the old layout stretched
+        # every panel across the window and left up to 78 % of the view empty.
+        columns = QHBoxLayout()
+        columns.setSpacing(16)
+        left = QVBoxLayout()
+        left.setSpacing(16)
+        right = QVBoxLayout()
+        right.setSpacing(16)
+
+        left.addWidget(self._trend_panel(series, c))
+        left.addWidget(self._category_panel(ov, c))
         budget_panel = self._budget_panel(ov, c)
         if budget_panel is not None:
-            self._body.addWidget(budget_panel)
-        self._body.addWidget(self._goals_panel(c))
-        self._body.addWidget(self._pots_panel(c))
+            left.addWidget(budget_panel)
+        left.addWidget(self._timeline_panel(ov, c))
+
+        right.addWidget(self._availability_panel(ov, c))
+        right.addWidget(self._goals_panel(c))
+        right.addWidget(self._pots_panel(c))
         vehicles_panel = self._vehicles_panel(ov, c)
         if vehicles_panel is not None:
-            self._body.addWidget(vehicles_panel)
-        self._body.addWidget(self._timeline_panel(ov, c))
-        self._body.addStretch(1)
+            right.addWidget(vehicles_panel)
+        left.addStretch(1)
+        right.addStretch(1)
+
+        columns.addLayout(left, 60)
+        columns.addLayout(right, 40)
+        self._body.addLayout(columns)
 
     def month_navigator(self):
         return getattr(self, "_nav", None)
+
+    def create_new(self) -> bool:
+        """Ctrl+N / the header button: capture an expense straight from here.
+
+        This is the app's most frequent action; it used to require switching to
+        the Haushaltsbuch, then to a tab that is not the default one.
+        """
+        from ui.dialogs import ExpenseDialog
+
+        dlg = ExpenseDialog(parent=self)
+        if dlg.exec():
+            self.ctx.expenses.add(dlg.result_model)
+            self.ctx.notify_changed()
+        return True
 
     # -- onboarding ----------------------------------------------------------
     def _onboarding_card(self, c) -> QWidget:
@@ -175,7 +222,7 @@ class DashboardView(BaseView):
         color = c["green"] if good else c["red"]
         return f"{arrow} {format_eur(abs(d))} ggü. Vormonat", color
 
-    def _stat_row(self, ov, prev, c) -> QWidget:
+    def _stat_row(self, ov, prev, c, series=None) -> QWidget:
         row = QWidget()
         layout = QHBoxLayout(row)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -202,76 +249,123 @@ class DashboardView(BaseView):
         remaining.set_hint("Nach Fix- und variablen Kosten")
         remaining.set_delta(*self._delta(rem, prev.after_all_cents, c, good_up=True))
 
+        # The trend is what makes a single number meaningful.
+        if series:
+            income.set_sparkline([p.income_cents for p in series], c, "primary")
+            fixed.set_sparkline([p.fixed_cents for p in series], c, "primary")
+            variable.set_sparkline([p.variable_cents for p in series], c, "primary")
+            remaining.set_sparkline([p.remaining_cents for p in series], c,
+                                    "green" if rem >= 0 else "red")
+
         for card in (income, fixed, variable, remaining):
             layout.addWidget(card, 1)
         return row
 
-    def _availability_and_chart(self, ov, c) -> QWidget:
-        row = QWidget()
-        layout = QHBoxLayout(row)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(16)
-
-        # Availability panel
+    def _availability_panel(self, ov, c) -> QWidget:
+        """How much room is left this month — the question the app exists for."""
         panel = QFrame()
         panel.setObjectName("Card")
         pl = QVBoxLayout(panel)
-        pl.setContentsMargins(22, 20, 22, 20)
-        pl.setSpacing(14)
-        pl.addWidget(self._panel_title("Verfügbarkeit"))
+        pl.setContentsMargins(20, 17, 20, 17)
+        pl.setSpacing(12)
+        pl.addWidget(self._panel_title("Spielraum"))
 
         pl.addLayout(self._avail_line(
-            "Verfügbar nach Fixkosten", ov.after_fixed_cents,
+            "Nach Fixkosten", ov.after_fixed_cents,
             c["green"] if ov.after_fixed_cents >= 0 else c["red"], big=True))
         pl.addLayout(self._avail_line(
-            "Verfügbar nach allem", ov.after_all_cents,
+            "Nach allem", ov.after_all_cents,
             c["green"] if ov.after_all_cents >= 0 else c["red"]))
-        big_purchase = max(0, ov.after_all_cents)
-        line = self._avail_line("Budget für Großanschaffungen", big_purchase, c["blue"])
-        pl.addLayout(line)
-        # Annual projection uses the recurring surplus only — a one-off credit
-        # this month must not be multiplied across the whole year.
+        # The annual projection uses the RECURRING surplus only: a one-off
+        # credit this month must not be multiplied across twelve months.
         yearly = max(0, ov.recurring_income_cents - ov.fixed_cents - ov.variable_cents) * 12
-        hint = QLabel(f"≈ {format_eur(yearly)} pro Jahr ansparbar")
+        hint = QLabel(f"Bei gleichem Verlauf rund {format_eur_short(yearly)} im Jahr")
         hint.setObjectName("Faint")
+        hint.setWordWrap(True)
         pl.addWidget(hint)
-        pl.addStretch(1)
-        layout.addWidget(panel, 1)
+        return panel
 
-        # Expense breakdown donut
-        chart_panel = QFrame()
-        chart_panel.setObjectName("Card")
-        cl = QVBoxLayout(chart_panel)
-        cl.setContentsMargins(22, 20, 22, 16)
-        cl.addWidget(self._panel_title("Ausgaben nach Kategorie"))
-        canvas = ChartCanvas(c, width=4.2, height=2.6)
-        canvas.setMinimumHeight(230)
-        canvas.setAccessibleName("Ausgaben nach Kategorie in diesem Monat")
-        # Whole month, not just its variable part: the fixed costs are mapped
-        # onto the expense taxonomy in budget.compute_overview.
+    def _trend_panel(self, series, c) -> QWidget:
+        """Twelve months of income against spending, as paired columns."""
+        panel = QFrame()
+        panel.setObjectName("Card")
+        pl = QVBoxLayout(panel)
+        pl.setContentsMargins(20, 17, 20, 15)
+        pl.setSpacing(10)
+
+        head = QHBoxLayout()
+        head.addWidget(self._panel_title("Einnahmen und Ausgaben"))
+        head.addStretch(1)
+        for text, key in (("Einnahmen", "green"), ("Ausgaben", "red")):
+            chip = QLabel("●  " + text)
+            chip.setStyleSheet(f"color: {c[key]}; font-size: 11px;")
+            head.addWidget(chip)
+            head.addSpacing(8)
+        pl.addLayout(head)
+
+        chart = ColumnTrend(c)
+        chart.setMinimumHeight(200)
+        chart.set_data([p.short_label for p in series],
+                       [p.income_cents for p in series],
+                       [p.fixed_cents + p.variable_cents for p in series])
+        chart.month_clicked.connect(
+            lambda i: self._drill_month(series[i]) if 0 <= i < len(series) else None)
+        chart.setAccessibleName("Einnahmen und Ausgaben je Monat")
+        pl.addWidget(chart)
+        foot = QLabel("Klick auf einen Monat öffnet dessen Buchungen.")
+        foot.setObjectName("Faint")
+        pl.addWidget(foot)
+        return panel
+
+    def _category_panel(self, ov, c) -> QWidget:
+        """Where the money went — a ranked list instead of a 14-slice donut.
+
+        The donut needed a legend as long as itself and turned to confetti past
+        six categories; a sorted bar list stays readable and needs no legend.
+        """
+        panel = QFrame()
+        panel.setObjectName("Card")
+        pl = QVBoxLayout(panel)
+        pl.setContentsMargins(20, 17, 20, 15)
+        pl.setSpacing(10)
+
+        head = QHBoxLayout()
+        head.addWidget(self._panel_title("Wohin das Geld geht"))
+        head.addStretch(1)
+        total = QLabel(format_eur(ov.fixed_cents + ov.variable_cents))
+        total.setObjectName("Muted")
+        head.addWidget(total)
+        pl.addLayout(head)
+
         by_cat = ov.all_by_category
-        if by_cat:
-            labels = list(by_cat.keys())
-            values = [v / 100.0 for v in by_cat.values()]
-            cycle = theme.chart_colors(c)
-            slice_colors = [cycle[i % len(cycle)] for i in range(len(labels))]
-            canvas.donut(labels, values, slice_colors,
-                         center_text=format_eur_short(ov.fixed_cents + ov.variable_cents),
-                         on_slice=self._drill_category)
-            top = ", ".join(f"{k} {format_eur(v)}" for k, v in list(by_cat.items())[:3])
-            canvas.setAccessibleDescription(f"Größte Kategorien: {top}.")
-        else:
-            canvas.donut([], [], [])
-        cl.addWidget(canvas)
-        # Legend
-        if by_cat:
-            legend = self._donut_legend(by_cat, c)
-            cl.addWidget(legend)
-            hint = QLabel("Klick auf ein Segment öffnet die Buchungen im Haushaltsbuch.")
-            hint.setObjectName("Faint")
-            cl.addWidget(hint)
-        layout.addWidget(chart_panel, 1)
-        return row
+        if not by_cat:
+            empty = QLabel("Noch keine Ausgaben in diesem Monat erfasst.")
+            empty.setObjectName("Faint")
+            pl.addWidget(empty)
+            return panel
+
+        # Top rows plus a rolled-up rest: more than ten bars stops being a
+        # ranking and becomes a wall.
+        limits = self.ctx.budgets.all()
+        items = list(by_cat.items())
+        rows = [(name, cents, limits.get(name)) for name, cents in items[:9]]
+        rest = sum(cents for _n, cents in items[9:])
+        if rest:
+            rows.append(("Übrige Kategorien", rest, None))
+
+        bars = CategoryBars(c)
+        bars.set_rows(rows)
+        bars.category_clicked.connect(self._drill_category)
+        bars.setAccessibleName("Ausgaben nach Kategorie")
+        pl.addWidget(bars)
+        foot = QLabel("Strich = Budget · Klick öffnet die Buchungen.")
+        foot.setObjectName("Faint")
+        pl.addWidget(foot)
+        return panel
+
+    def _drill_month(self, point) -> None:
+        """Trend column click: open that month's bookings."""
+        self.ctx.request_drilldown(point.year, point.month, "")
 
     def _drill_category(self, category: str) -> None:
         """Donut slice / budget row click: jump to the filtered Haushaltsbuch."""
@@ -637,49 +731,33 @@ class DashboardView(BaseView):
         row.addWidget(value)
         return row
 
-    def _donut_legend(self, by_cat: dict, c) -> QWidget:
-        wrap = QWidget()
-        grid = QGridLayout(wrap)
-        grid.setContentsMargins(0, 6, 0, 0)
-        grid.setHorizontalSpacing(16)
-        grid.setVerticalSpacing(4)
-        cycle = theme.chart_colors(c)
-        total = sum(by_cat.values()) or 1
-        for i, (cat, val) in enumerate(by_cat.items()):
-            dot = QLabel("●")
-            dot.setStyleSheet(f"color: {cycle[i % len(cycle)]}; font-size: 13px;")
-            # Show the share in percent so the legend conveys the split without
-            # relying on colour alone (WCAG 1.4.1).
-            text = QLabel(f"{cat}  {format_eur(val)} · {round(val * 100 / total)} %")
-            text.setObjectName("Faint")
-            r, col = divmod(i, 2)
-            cell = QHBoxLayout()
-            cell.setSpacing(6)
-            cell.addWidget(dot)
-            cell.addWidget(text)
-            cell.addStretch(1)
-            holder = QWidget()
-            holder.setLayout(cell)
-            grid.addWidget(holder, r, col)
-        return wrap
-
     def _timeline_row(self, left: str, mid: str, right: str, color: str, c,
                       bold: bool = False) -> QHBoxLayout:
+        """One timeline entry as a wrappable two-line block.
+
+        The former single-line "label | what drops | resulting figures" strip
+        needed ~680px and therefore forced the whole dashboard wider than the
+        window. Two wrapping lines fit any column.
+        """
         row = QHBoxLayout()
+        row.setSpacing(8)
         dot = QLabel("●")
-        dot.setStyleSheet(f"color: {color}; font-size: 14px;")
-        l = QLabel(f"<b>{left}</b>" if bold else left)
-        l.setMinimumWidth(90)
-        m = QLabel(mid)
-        m.setObjectName("Muted")
-        r = QLabel(right)
-        r.setStyleSheet(f"color: {c['text']}; font-weight: 600;")
-        r.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        dot.setStyleSheet(f"color: {color}; font-size: 13px;")
+        dot.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
+        dot.setFixedWidth(12)
+
+        block = QVBoxLayout()
+        block.setSpacing(1)
+        head = QLabel(f"<b>{left}</b> · {mid}" if bold else f"{left} · {mid}")
+        head.setWordWrap(True)
+        block.addWidget(head)
+        detail = QLabel(right)
+        detail.setObjectName("Faint")
+        detail.setWordWrap(True)
+        block.addWidget(detail)
+
         row.addWidget(dot)
-        row.addWidget(l)
-        row.addWidget(m)
-        row.addStretch(1)
-        row.addWidget(r)
+        row.addLayout(block, 1)
         return row
 
     def _timeline_event_row(self, left: str, mid: str, right: str, c) -> QHBoxLayout:

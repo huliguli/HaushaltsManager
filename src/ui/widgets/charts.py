@@ -141,6 +141,7 @@ class _AxisChart(_Chart):
         self.labels: list[str] = []
         self._plot = QRectF()
         self.setMinimumHeight(190)
+        self.setMinimumWidth(220)
 
     def mousePressEvent(self, event) -> None:
         if event.button() != Qt.MouseButton.LeftButton or not self.labels:
@@ -359,7 +360,13 @@ class CategoryBars(_Chart):
 
     def sizeHint(self):
         from PyQt6.QtCore import QSize
-        return QSize(360, max(40, len(self.rows) * self._row_height + 4))
+        return QSize(320, max(40, len(self.rows) * self._row_height + 4))
+
+    def minimumSizeHint(self):
+        # Narrow floor: the panel decides the width, not the chart. Column
+        # widths below are derived from the actual width at paint time.
+        from PyQt6.QtCore import QSize
+        return QSize(220, max(40, len(self.rows) * self._row_height + 4))
 
     def mousePressEvent(self, event) -> None:
         if event.button() != Qt.MouseButton.LeftButton or not self.rows:
@@ -382,9 +389,9 @@ class CategoryBars(_Chart):
         painter.setFont(font_name)
         metrics = painter.fontMetrics()
 
-        name_w = min(200.0, max(120.0, self.width() * 0.30))
-        value_w = 92.0
-        share_w = 40.0
+        name_w = min(190.0, max(96.0, self.width() * 0.30))
+        value_w = 88.0
+        share_w = 38.0
         bar_x = name_w + 10
         bar_w = max(30.0, self.width() - name_w - value_w - share_w - 26)
 
